@@ -39,3 +39,40 @@
 
 # debug information files
 *.dwo
+# Ignore build output dirs
+/build/
+/bin/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+Makefile
+CTestTestfile.cmake
+Testing/
+
+# CTest logs
+Testing/**
+
+# optional compile‐commands database
+compile_commands.json
+
+# object files, libs, exes
+*.o
+*.obj
+*.so
+*.a
+*.lib
+*.dylib
+*.dll
+*.exe
+
+# editor/IDE temp files
+*.swp
+*~
+.vscode/
+.idea/
+
+# nix flake lock?  (uncomment if you don't want to check in your lock file)
+# /flake.lock
