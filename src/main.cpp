@@ -12,9 +12,11 @@
 #include <glm/vec3.hpp>
 
 #include <iterator>
+#include <print>
 #include <string_view>
 #include <vector>
 #include <iostream>
+#include <variant>
 
 #include "analytics.h"
 
@@ -29,8 +31,8 @@ void calculate_gravitational_acceleration(const std::vector<gravitationalBody> &
 
     double grav_const = GRAV_G;
 
-    for (int i = 0; i < bodies.size()- 1; i++) {
-        for (int j = i + 1; j < bodies.size(); j++) {
+    for (size_t i = 0; i < bodies.size()- 1; i++) {
+        for (size_t j = i + 1; j < bodies.size(); j++) {
             glm::dvec3 pi = bodies[i].position, pj = bodies[j].position;
             double mi = bodies[i].mass, mj = bodies[j].mass;
             // vector pointing from j to i, the direction will the the same as the force i exertes on j
@@ -85,10 +87,12 @@ void timestep_euler(std::vector<gravitationalBody>& bodies, std::vector<glm::dve
     acceleration_junk = std::move(acceleration);
 }
 
+using RK2_function_signiture = std::function<void(std::vector<gravitationalBody>&, std::vector<gravitationalBody>&, std::vector<glm::dvec3>&, double, accel_func, forward_euler_function_signiture)>;
+
 /*
  * Performs an runga kutta 2 timestep 
  * mutates 1st parameter
- * */
+* */
 void timestep_RK2(
     std::vector<gravitationalBody>& bodies, 
     std::vector<gravitationalBody>& body_copy, 
@@ -114,24 +118,26 @@ void timestep_RK2(
     acceleration_junk = std::move(acceleration);
 }
 
-void _sum2_vec_dvec3(std::vector<glm::dvec3>& vec1, const std::vector<glm::dvec3>& vec2) {
-    for (size_t i = 0; i < vec1.size(); i++) {
-        vec1[i] += vec2[i]; 
-    }
-}
+// void _sum2_vec_dvec3(std::vector<glm::dvec3>& vec1, const std::vector<glm::dvec3>& vec2) {
+//     for (size_t i = 0; i < vec1.size(); i++) {
+//         vec1[i] += vec2[i]; 
+//     }
+// }
+//
+// template<typename ...Vectors>
+// std::vector<glm::dvec3>& sum_vec_dvec(std::vector<glm::dvec3>& acc, Vectors const&... others) {
+//     (_sum2_vec_dvec3(acc, others), ...);
+//     return acc;
+// }
 
-template<typename ...Vectors>
-std::vector<glm::dvec3>& sum_vec_dvec(std::vector<glm::dvec3>& acc, Vectors const&... others) {
-    (_sum2_vec_dvec3(acc, others), ...);
-    return acc;
-}
+using RK4_function_signiture = std::function<void(std::vector<gravitationalBody>&, std::array<std::vector<gravitationalBody>, 3>&, std::array<std::vector<glm::dvec3>, 4>&, double, accel_func)>;
 
 void timestep_RK4(
     std::vector<gravitationalBody>& bodies,
     std::array<std::vector<gravitationalBody>, 3>& body_copies,
     std::array<std::vector<glm::dvec3>, 4>& acceleration_junk,
     double step_size,
-    accel_func acc_func,forward_euler_function_signiture forward_euler
+    accel_func acc_func
 )
 {
     for (int i = 0; i < 4; i++) {
@@ -152,13 +158,13 @@ void timestep_RK4(
     auto& a3 = acceleration_junk[2];
     auto& a4 = acceleration_junk[3];
 
-    // acc_func computes acceleration from the state of the system
-    // forward euler timesteps the system with the acceleration, by computing the acceleration of every body
-    // it doesnt reset the passed acceleration itself, the passed acceleration function does this
-    // therefore it is possible to break up the computation by computing acceleration outside of the forward euler method
-    // acc_func(bodies, a1);
+    // were actually doing 2 seperate forward euler steps for each stage of the runge kutta
 
-    forward_euler(x2, a1, step_size / 2.0, acc_func);
+    acc_func(bodies, a1);
+    for (size_t i = 0; i < bodies.size(); i ++) {
+        x2[i].position += bodies[i].velocity * (step_size / 2.0);
+        x2[i].velocity += a1[i] * (step_size / 2.0);
+    }
     
     acc_func(x2, a2);
     for (size_t i = 0; i < bodies.size(); i ++) {
@@ -173,118 +179,136 @@ void timestep_RK4(
     }
 
     acc_func(x4, a4);
-
     for (size_t i = 0; i < bodies.size(); i++) {
         bodies[i].position += (step_size / 6.0) * (bodies[i].velocity + 2.0 * x2[i].velocity + 2.0 * x3[i].velocity + x4[i].velocity);
         bodies[i].velocity += (step_size / 6.0) * (a1[i] + 2.0 * a2[i] + 2.0 * a3[i] + a4[i]);
     }
 }
 
+using generic_integrator = std::variant<forward_euler_function_signiture, RK2_function_signiture, RK4_function_signiture>;
+/* This basically 
+ * */
 
-int main (int argc, char *argv[]) {
-    size_t integration_steps = 200;
-    size_t samples = 20;
+struct integrator 
+{
+    const generic_integrator integration_method;
+    const accel_func acceleration_function;
+    const forward_euler_function_signiture forward_euler;
+
+    std::vector<gravitationalBody> single_body_data;
+    std::array<std::vector<gravitationalBody>, 3> triple_gravitational_body_data;
+
+    std::vector<glm::dvec3> acceleration_junk_data;
+    std::array<std::vector<glm::dvec3>, 4> acceleration_quadruple_junk_data;
+
+    inline static std::vector<std::string> integrator_names {"Forward Euler", "Runge-Kutta 2nd Order", "Runge-Kutta 4th Order"};
+
+    std::string integrator_name;
+
+
+    integrator(generic_integrator timestep_function, accel_func acc_func): 
+        integration_method(timestep_function), 
+        acceleration_function(acc_func),
+        forward_euler(timestep_euler)
+    {
+        if (std::holds_alternative<forward_euler_function_signiture>(integration_method)) 
+        {
+            integrator_name = integrator_names[0];
+        } 
+        else if (std::holds_alternative<RK2_function_signiture>(integration_method)) 
+        {
+            integrator_name = integrator_names[1];
+        } 
+        else if (std::holds_alternative<RK4_function_signiture>(integration_method))
+        {
+            integrator_name = integrator_names[2];
+        } else 
+        {
+            std::cerr << "Error integrator object isnt properly initialised";
+        }
+    }
+
+    void integrate(std::vector<gravitationalBody>& bodies, double timestep) {
+        if (std::holds_alternative<forward_euler_function_signiture>(integration_method)) 
+        {
+            forward_euler_function_signiture euler_integrator = std::get<forward_euler_function_signiture>(integration_method);
+            euler_integrator(bodies, acceleration_junk_data, timestep, acceleration_function);
+        } 
+        else if (std::holds_alternative<RK2_function_signiture>(integration_method)) 
+        {
+            RK2_function_signiture rk2_integrator = std::get<RK2_function_signiture>(integration_method);
+            rk2_integrator(bodies, single_body_data, acceleration_junk_data, timestep, acceleration_function, forward_euler);
+        } 
+        else if (std::holds_alternative<RK4_function_signiture>(integration_method))
+        {
+            RK4_function_signiture rk4_integrator = std::get<RK4_function_signiture>(integration_method);
+            rk4_integrator(bodies, triple_gravitational_body_data, acceleration_quadruple_junk_data, timestep, acceleration_function);
+        }
+    }
+};
+
+template <size_t num_bodies>
+std::vector<simulationFrame<num_bodies>> run_nbody_simulation(
+    size_t integration_steps, 
+    size_t samples, 
+    size_t number_of_days, 
+    std::vector<gravitationalBody> bodies, 
+    generic_integrator integration_method) 
+{
     size_t sampling_divisor = integration_steps / samples;
-    const size_t num_bodies = 2;
-    double a = 0, b = (365.25f * 24.0f * 3600.0f);
+    double a = 0, b = (number_of_days * 24.0f * 3600.0f);
     double step_size = ((double)(b - a)) / ((double)integration_steps);
 
-    glm::dvec3 center_of_mass;
-    std::cout << "step size : " << step_size << "\n";
-    std::vector<glm::dvec3> acceleration;
+    integrator this_integrator(integration_method, calculate_gravitational_acceleration);
 
-    std::vector<gravitationalBody> bodies_original = {
+    std::vector<simulationFrame<num_bodies>> datalog;
+
+    for (size_t s = 0; s < integration_steps; s++) {
+        this_integrator.integrate(bodies, step_size);
+
+        if (s % sampling_divisor == 0) {
+            int current_frame = s / sampling_divisor;
+            double currentTime = a + s * step_size;
+
+            datalog.push_back({});
+            std::copy(bodies.begin(), bodies.end(), datalog[current_frame].bodies.begin());
+            datalog[current_frame].time = currentTime;
+        }
+    }
+    return datalog;
+}
+
+std::vector<std::vector<simulationFrame<2>>> earth_moon_simulation(size_t integration_steps, size_t samples, double number_of_days) {
+    const size_t num_bodies = 2;
+
+    std::vector<gravitationalBody> bodies= {
         {MASS_EARTH, {0, 0,0},{0, 0,0}},
         {MASS_MOON, {0,DIST_EARTH_MOON,0},{MOON_EARTH_VELOCITY,0,0}},
     };
 
-    center_of_mass = calculate_center_of_mass(bodies_original);
-    acceleration.resize(bodies_original.size());
-    std::fill(acceleration.begin(), acceleration.end(), glm::dvec3(0.0,0.0,0.0));
+    std::vector<simulationFrame<num_bodies>> forward_euler_datalog = 
+        run_nbody_simulation<num_bodies>(integration_steps, samples, number_of_days, bodies, timestep_euler);
 
-    std::cout << "Initial bodies: \n";
-    for (size_t i = 0; i < bodies_original.size(); i++) {
-        std::cout << std::format("{}, {}\n", get_str_glm_vec3(bodies_original[i].position, "position"), get_str_glm_vec3(bodies_original[i].velocity, "velocity"));
-    }
-
-
-    std::vector<simulationFrame<num_bodies>> dataLog_f_euler;
-    std::vector<gravitationalBody> bodies_f_euler;
-    std::copy(bodies_original.begin(), bodies_original.end(), std::back_inserter(bodies_f_euler));
-
-    for (size_t s = 0; s < integration_steps; s++) {
-        // calculate_gravitational_acceleration(bodies, acceleration);
-        timestep_euler(bodies_f_euler, acceleration, step_size, calculate_gravitational_acceleration);
-
-        if (s % sampling_divisor == 0) {
-            int current_frame = s / sampling_divisor;
-            double currentTime = a + s * step_size;
-
-            dataLog_f_euler.push_back({});
-            std::copy(bodies_f_euler.begin(), bodies_f_euler.end(), dataLog_f_euler[current_frame].bodies.begin());
-            std::copy(acceleration.begin(), acceleration.end(), dataLog_f_euler[current_frame].acceleration.begin());
-            dataLog_f_euler[current_frame].time = currentTime;
-        }
-    }
-    std::cout << "\nForward Euler DATA ANALYSIS ===================\n";
-    analyse_data_log(dataLog_f_euler);
-
-    std::vector<simulationFrame<num_bodies>> datalog_RK2;
-    std::vector<gravitationalBody> bodies_RK2;
-
-    std::vector<gravitationalBody> bodies_RK2_copy;
-    bodies_RK2_copy.resize(bodies_original.size());
-
-    std::copy(bodies_original.begin(), bodies_original.end(), std::back_inserter(bodies_RK2));
-
-    for (size_t s = 0; s < integration_steps; s++) {
-        // calculate_gravitational_acceleration(bodies, acceleration);
-        timestep_RK2(bodies_RK2, bodies_RK2_copy, acceleration, step_size, calculate_gravitational_acceleration, timestep_euler);
-
-        if (s % sampling_divisor == 0) {
-            int current_frame = s / sampling_divisor;
-            double currentTime = a + s * step_size;
-
-            datalog_RK2.push_back({});
-            std::copy(bodies_RK2.begin(), bodies_RK2.end(), datalog_RK2[current_frame].bodies.begin());
-            std::copy(acceleration.begin(), acceleration.end(), dataLog_f_euler[current_frame].acceleration.begin());
-            datalog_RK2[current_frame].time = currentTime;
-        }
-    }
-    std::cout << "\nRK2 DATA ANALYSIS ===================\n";
-    analyse_data_log(datalog_RK2);
-
-    std::vector<simulationFrame<num_bodies>> datalog_RK4;
-    std::vector<gravitationalBody> bodies_RK4;
-
-    std::array<std::vector<gravitationalBody>, 3> bodies_RK4_copy;
-    for (auto& vec : bodies_RK4_copy) {
-        vec.resize(bodies_original.size());
-    }
-
-    std::array<std::vector<glm::dvec3>, 4> acceleration_vecs_RK4;
-    for (auto& acc: acceleration_vecs_RK4) {
-        acc.resize(bodies_original.size());
-    }
-
-    std::copy(bodies_original.begin(), bodies_original.end(), std::back_inserter(bodies_RK4));
-
-    for (size_t s = 0; s < integration_steps; s++) {
-        // calculate_gravitational_acceleration(bodies, acceleration);
-        timestep_RK4(bodies_RK4, bodies_RK4_copy, acceleration_vecs_RK4, step_size, calculate_gravitational_acceleration, timestep_euler);
-
-        if (s % sampling_divisor == 0) {
-            int current_frame = s / sampling_divisor;
-            double currentTime = a + s * step_size;
-
-            datalog_RK4.push_back({});
-            std::copy(bodies_RK4.begin(), bodies_RK4.end(), datalog_RK4[current_frame].bodies.begin());
-            std::copy(acceleration.begin(), acceleration.end(), dataLog_f_euler[current_frame].acceleration.begin());
-            datalog_RK4[current_frame].time = currentTime;
-        }
-    }
-    std::cout << "\nRK2 DATA ANALYSIS ===================\n";
-    analyse_data_log(datalog_RK4);
+    std::vector<simulationFrame<num_bodies>> rk2_datalog= 
+        run_nbody_simulation<num_bodies>(integration_steps, samples, number_of_days, bodies, timestep_RK2);
     
+    std::vector<simulationFrame<num_bodies>> rk4_datalog= 
+        run_nbody_simulation<num_bodies>(integration_steps, samples, number_of_days, bodies, timestep_RK4);
+    
+    std::println("{} Data Analysis", integrator::integrator_names[0]);
+    analyse_data_log(forward_euler_datalog);
+
+    std::println("{} Data Analysis", integrator::integrator_names[1]);
+    analyse_data_log(rk2_datalog);
+
+    std::println("{} Data Analysis", integrator::integrator_names[2]);
+    analyse_data_log(rk4_datalog);
+
+    return {forward_euler_datalog, rk2_datalog, rk4_datalog};
+}
+
+
+int main (int argc, char *argv[]) {
+    earth_moon_simulation(10000, 20, 365.25*20.0);
     return 0;
 }

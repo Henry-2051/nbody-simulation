@@ -31,7 +31,6 @@ struct gravitationalBody {
 template <size_t N>
 struct simulationFrame {
     std::array<gravitationalBody, N> bodies;
-    std::array<glm::dvec3, N> acceleration;
     float time;
     size_t bodies_contained{N}; 
     // by default we are going to assume that every element of the array 
