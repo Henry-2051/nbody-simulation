@@ -24,9 +24,12 @@
 #define EARTH_SUN_VELOCITY 2.9886e5
 #define MASS_MARS 6.417e23
 
-
+// A gravitational body.
+// double mass  8 bytes
+// glm::dvec3 position 24 bytes
+// glm::dvec3 velocity 24 bytes
 struct gravitationalBody {
-    double mass;
+    double mass; 
     glm::dvec3 position;
     glm::dvec3 velocity;
 };
@@ -67,6 +70,10 @@ inline void calculate_gravitational_acceleration(const std::vector<gravitational
             acceleration[i] += (grav_const * mj / dr_squared_magnitude) * force_on_i_direction;
         }
     }
+}
+inline std::ostream& operator<<(std::ostream& os, glm::dvec3 const& v)
+{
+    return os << '(' << v.x << ", " << v.y << ", " << v.z << ')';
 }
 
 /// generate N bodies with

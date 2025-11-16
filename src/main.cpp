@@ -2,6 +2,8 @@
 #include <array>
 #include <cmath>
 #include <format>
+#include <ostream>
+#include <sstream>
 
 #include <functional>
 #include <glm/common.hpp>
@@ -49,38 +51,25 @@ struct colored_vertex_f {
     color_f  c;
 };
 
-unsigned int SCREEN_WIDTH = 800, SCREEN_HEIGHT = 600;
 
-const char * vertex_shader_source = R"glsl(
-    #version 330 core
-    layout (location = 0) in vec3 aPos;
-    layout (location = 1) in vec3 aColor;
+namespace gl_window_globals {
+int width = 800;
+int height = 600;
 
-    uniform mat4 model;
-    uniform mat4 view;
-    uniform mat4 projection;
+float lastX = float(static_cast<float>(width) / 2), lastY = float(static_cast<float>(height) / 2);
 
-    out vec3 vertColor;
+float pitch = 0.0f;
+float yaw = -90.0f;
+float roll = 0.0f;
+float fov = 30;
 
-    void main()
-    {
-        gl_Position = projection * view * model * vec4(aPos, 1.0f);
-        vertColor = aColor;
-    }
-)glsl";
+glm::vec3 cameraPos   = glm::vec3(0.0f, 0.0f,  3.0f);
+glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
+glm::vec3 cameraUp    = glm::vec3(0.0f, 1.0f,  0.0f);
 
-const char * fragment_shader_source = R"glsl(
-    #version 330 core
-    out vec4 FragColor;
-
-    in vec3 vertColor;
-
-    void main()
-    {
-        FragColor = vec4(vertColor, 1.0f);
-    }
-)glsl";
-
+float deltaTime = 0.0f;	// Time between current frame and last frame
+float lastFrame = 0.0f; // Time of last frame
+}
 
 using accel_func = std::function<void 
     (const std::vector<gravitationalBody> &, 
@@ -247,6 +236,7 @@ std::vector<glm::dvec3>& operator*=(std::vector<glm::dvec3>& vec1, double scalar
  * and acceleration arrays appropriate to the chosen method.  Calling `integrate(bodies)`
  * dispatches to the selected scheme.
  */
+
 struct integrator 
 {
     const generic_integrator integration_method;
@@ -313,146 +303,258 @@ std::vector<simulationFrame> run_nbody_simulation(
     size_t samples, 
     size_t length_simulation, 
     std::vector<gravitationalBody> bodies, 
-    generic_integrator integration_method) 
-{
-    size_t sampling_divisor = integration_steps / samples;
-    double a = 0, b = (length_simulation);
-    double step_size = ((double)(b - a)) / ((double)integration_steps);
+    generic_integrator integration_method
+); 
 
-    integrator this_integrator(integration_method, calculate_gravitational_acceleration, step_size);
-
-    std::vector<simulationFrame> datalog;
-    
-
-    for (size_t s = 0; s < integration_steps; s++) {
-        this_integrator.integrate(bodies);
-
-        if (s % sampling_divisor == 0) {
-            double currentTime = a + s * step_size;
-            datalog.push_back({bodies, currentTime});
-        }
-    }
-    return datalog;
-}
-
-template <size_t num_bodies>
 std::vector<simulationFrame> run_nbody_simulation_prime(
     double sim_start,
     double sim_end,
     double step_size,
     size_t samples,
     std::vector<gravitationalBody> bodies,
-    generic_integrator integration_method)
+    generic_integrator integration_method
+);
+
+
+std::vector<std::vector<simulationFrame>> three_body_simulation(double sim_start, double sim_end, double step_size);
+
+std::vector<std::vector<simulationFrame>> earth_moon_simulation(size_t integration_steps, size_t samples, double number_of_days);
+
+
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 {
-    size_t num_integration_steps = (size_t)((sim_end - sim_start) / step_size);
-    integrator this_integrator = integrator(integration_method, calculate_gravitational_acceleration, step_size);
-
-    return run_nbody_simulation(num_integration_steps, samples, sim_end - sim_start, bodies, integration_method);
 }
 
-std::vector<std::vector<simulationFrame>> three_body_simulation(double sim_start, double sim_end, double step_size) {
-    const size_t num_bodies = 3;
+void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
+    float xoffset = xpos - gl_window_globals::lastX;
+    float yoffset = gl_window_globals::lastY - ypos; // reversed since y-coordinates range from bottom to top
+    gl_window_globals::lastX = xpos;
+    gl_window_globals::lastY = ypos;
 
-    float angle1[2] = {30.0, 20.0 };
-    float angle2[2] = {-20.0, 80.0};
-    float angle3[2] = {60, 110};
+    const float sensitivity = 0.1f;
+    xoffset *= sensitivity;
+    yoffset *= sensitivity;
 
-    glm::vec3 x(1,0,0), y(0,1,0), z(0,0,1);
+    gl_window_globals::yaw   += xoffset;
+    gl_window_globals::pitch += yoffset;  
 
-    // first chain of rotations
-    glm::mat4 R1_a = glm::rotate(glm::mat4(1.0f),
-                                 glm::radians(angle1[0]),
-                                 x);
-    glm::mat4 R1_b = glm::rotate(glm::mat4(1.0f),
-                                 glm::radians(angle1[1]),
-                                 y);
-    // second chain
-    glm::mat4 R2_a = glm::rotate(glm::mat4(1.0f),
-                                 glm::radians(angle2[0]),
-                                 x);
-    glm::mat4 R2_b = glm::rotate(glm::mat4(1.0f),
-                                 glm::radians(angle2[1]),
-                                 y);
-    // third chain
-    glm::mat4 R3_a = glm::rotate(glm::mat4(1.0f),
-                                 glm::radians(angle3[0]),
-                                 x);
-    glm::mat4 R3_b = glm::rotate(glm::mat4(1.0f),
-                                 glm::radians(angle3[1]),
-                                 y);
+    if (gl_window_globals::pitch > 89.0f) { gl_window_globals::pitch =  89.0f; }
 
-    glm::vec4 _r1 = R1_a * R1_b * glm::vec4(z, 0.0f);
-    glm::dvec3 r1 = glm::dvec3(_r1);
+    if (gl_window_globals::pitch < -89.0f) { gl_window_globals::pitch = -89.0f;}
+};
 
-    glm::vec3 _r2 = R2_b * R2_a * glm::vec4(z, 0.0);
-    glm::dvec3 r2 = glm::dvec3(_r2);
+void processInput(GLFWwindow *window)
+{
+    if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+        glfwSetWindowShouldClose(window, true);
 
-    glm::vec3 _r3 = R3_b * R3_a * glm::vec4(z, 0.0);
-    glm::dvec3 r3 = glm::dvec3(_r3);
-
-    double large_dist = DIST_EARTH_MOON * 100.0f;
-    double large_speed = MOON_EARTH_VELOCITY * 10.0;
-    double large_mass = MASS_MARS;
-
-    std::vector<gravitationalBody> bodies = {
-        {large_mass * 1.32, large_dist * r1, large_speed * r2},
-        {large_mass * 0.82, large_dist * r2, large_speed * r3},
-        {large_mass * 1.58, large_dist * r3, large_speed * r1}
-    };
-
-    std::vector<simulationFrame> rk2_datalog = run_nbody_simulation_prime<num_bodies>(sim_start, sim_end, step_size, 20, bodies, timestep_RK2);
-    
-    std::vector<simulationFrame> rk4_datalog = run_nbody_simulation_prime<num_bodies>(sim_start, sim_end, step_size, 20, bodies, timestep_RK4);
-
-    std::println("3 body simulation");
-
-    std::println("{} Data Analysis", integrator::integrator_names[1]);
-    analyse_data_log(rk2_datalog);
-
-    std::println("{} Data Analysis", integrator::integrator_names[2]);
-    analyse_data_log(rk4_datalog);
-
-    return {rk2_datalog, rk4_datalog};
+    const float cameraSpeed = 2.5f * gl_window_globals::deltaTime; // adjust accordingly
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+        gl_window_globals::cameraPos += cameraSpeed * gl_window_globals::cameraFront;
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+        gl_window_globals::cameraPos -= cameraSpeed * gl_window_globals::cameraFront;
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+        gl_window_globals::cameraPos -= glm::normalize(glm::cross(gl_window_globals::cameraFront, gl_window_globals::cameraUp)) * cameraSpeed;
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+        gl_window_globals::cameraPos += glm::normalize(glm::cross(gl_window_globals::cameraFront, gl_window_globals::cameraUp)) * cameraSpeed;
 }
 
-std::vector<std::vector<simulationFrame>> earth_moon_simulation(size_t integration_steps, size_t samples, double number_of_days) {
-    const size_t num_bodies = 2;
-
-    std::vector<gravitationalBody> bodies= {
-        {MASS_EARTH, {0, 0,0},{0, 0,0}},
-        {MASS_MOON, {0,DIST_EARTH_MOON,0},{MOON_EARTH_VELOCITY,0,0}},
-    };
-
-
-    std::vector<simulationFrame> forward_euler_datalog = 
-        run_nbody_simulation(integration_steps, samples, number_of_days, bodies, timestep_euler);
-
-    std::vector<simulationFrame> rk2_datalog= 
-        run_nbody_simulation(integration_steps, samples, number_of_days, bodies, timestep_RK2);
-    
-    std::vector<simulationFrame> rk4_datalog= 
-        run_nbody_simulation(integration_steps, samples, number_of_days, bodies, timestep_RK4);
-    
-    std::println("2 body Earth moon simulation\n");
-    std::println("{} Data Analysis", integrator::integrator_names[0]);
-    analyse_data_log(forward_euler_datalog);
-
-    std::println("{} Data Analysis", integrator::integrator_names[1]);
-    analyse_data_log(rk2_datalog);
-
-    std::println("{} Data Analysis", integrator::integrator_names[2]);
-    analyse_data_log(rk4_datalog);
-
-    return {forward_euler_datalog, rk2_datalog, rk4_datalog};
+void framebuffer_size_callback(GLFWwindow* window, int width, int height)
+{
+    gl_window_globals::width = width;
+    gl_window_globals::height= height;
+    glViewport(0, 0, width, height);
 }
 
+int openglDisplay() {
+    unsigned int VBO, VAO, EBO, vertex_shader, fragment_shader, shader_program;
 
-int main (int argc, char *argv[]) {
-    earth_moon_simulation(10000, 20, 365.25 * 20.0 * 24.0 * 3600.0);
-    double days = 365.25 * 30.0;
-    // three_body_simulation(0.0, days * 24.0 * 3600.0, 5.0*86400.0);
+    const char * vertex_shader_source = R"glsl(
+        #version 330 core
+        layout (location = 0) in vec3 aPos;
+        // layout (location = 1) in vec3 aColor;
+
+        uniform mat4 model;
+        uniform mat4 view;
+        uniform mat4 projection;
+
+        out vec3 vertColor;
+
+        void main()
+        {
+            gl_Position = projection * view * model * vec4(aPos, 1.0f);
+            vertColor = vec3(1.0,1.0,1.0);
+        }
+    )glsl";
+
+
+    const char * fragment_shader_source = R"glsl(
+        #version 330 core
+        out vec4 FragColor;
+
+        in vec3 vertColor;
+
+        void main()
+        {
+            FragColor = vec4(vertColor, 1.0f);
+        }
+    )glsl";
+
+    BoundingBox box {{-1,-1,-1}, {1,1,1}};
+    const std::size_t num_points      = 10000;
+    uint32_t    seed   = 12345;
+    double      mMin   = 1e20;
+    double      mMax   = 1e25;
+
+    std::vector<gravitationalBody> bodies = generateRandomBodies(box, num_points, seed, mMin, mMax);
+    std::array<glm::vec3, num_points> float_positions {};
+
+    for (int i = 0; i < bodies.size(); i++) {
+         float_positions[i] = glm::vec3(bodies[i].position);
+    }
+
+    for (auto& pos : float_positions) {
+        std::ostringstream p;
+        p << pos;
+        std::println("position: {}", p.str());
+    }
+
+    glfwInit();
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+    GLFWwindow* window = glfwCreateWindow(gl_window_globals::width, gl_window_globals::height, "nbody", NULL, NULL);
+
+
+    glfwMakeContextCurrent(window);
+        
+    glEnable(GL_DEPTH_TEST);  
+    glewInit();
+
+    glViewport(0, 0, 800, 600); // this is the size of the rendering window, 
+    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);  
+    glfwSetScrollCallback(window, scroll_callback); 
+    glfwSetCursorPosCallback(window, mouse_callback);  
+
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glGenBuffers(1, &EBO);
+    // bind the vertex array object first, then bind and se the vertex buffer(s), and then configure vertex attributes
+    glBindVertexArray(VAO);
+
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    // function designed to copy user defined data into the currently bound buffer
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float_positions), float_positions.data(), GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+
+    // atribute pointers and data layout configuration
+    // param 1 : location of the configured attibute (look at vertex shader)
+    // param 2 : size of the vertex attribute, composed of 3 values
+    // param 3 : the type of the data, in opengl a vec3 is composed of floats
+    // param 4 : this is whether we want the data normalised, this would be true for integer data types
+    // param 5 : this is known as the stride length, it tells us the length between consecutive values
+    // param 6 : type (void *) tells us the offset of where the position data begins in the buffer.
+
+    vertex_shader = glCreateShader(GL_VERTEX_SHADER);
+
+    glShaderSource(vertex_shader, 1, &vertex_shader_source, NULL);
+    glCompileShader(vertex_shader);
+
+    display_opengl_shader_compilation_error(vertex_shader);
+
+    fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fragment_shader, 1, &fragment_shader_source, NULL);
+
+    shader_program = glCreateProgram();
+    glAttachShader(shader_program, vertex_shader);
+    glAttachShader(shader_program, fragment_shader);
+    glLinkProgram(shader_program);
+
+    display_opengl_program_compilation_error(shader_program);
+
+    glDeleteShader(vertex_shader);
+    glDeleteShader(fragment_shader);  
+
+    glm::mat4 projection, view, model;
+    int modelLoc, projectionLoc, viewLoc;
+
+    float startTime = glfwGetTime(); 
+    float angle1;
+
+    while(!glfwWindowShouldClose(window))
+    {
+
+        float currentFrame = glfwGetTime();
+        gl_window_globals::deltaTime = currentFrame - gl_window_globals::lastFrame;
+        gl_window_globals::lastFrame = currentFrame;  
+
+        processInput(window);
+        glm::vec3 direction= glm::vec3(
+            cos(glm::radians(gl_window_globals::yaw)) * cos(glm::radians(gl_window_globals::pitch)),
+            sin(glm::radians(gl_window_globals::pitch)),
+            sin(glm::radians(gl_window_globals::yaw)) * cos(glm::radians(gl_window_globals::pitch))
+        );
+ 
+        model = glm::mat4(1.0f);
+
+        projection = glm::perspective(glm::radians(gl_window_globals::fov), 
+                                      (float)gl_window_globals::width / (float)gl_window_globals::height, 
+                                      0.1f, 100.0f);  
+
+        gl_window_globals::cameraFront = glm::normalize(direction);
+
+        glm::mat4 view;
+        view = glm::lookAt(gl_window_globals::cameraPos, 
+                           gl_window_globals::cameraPos + gl_window_globals::cameraFront, 
+                           gl_window_globals::cameraUp);
+
+        glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, GL_FALSE, glm::value_ptr(model));
+        glUniformMatrix4fv(glGetUniformLocation(shader_program, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+        glUniformMatrix4fv(glGetUniformLocation(shader_program, "view"), 1, GL_FALSE, glm::value_ptr(view));
+
+        glClearColor(0.1, 0.05, 0.11, 1.0); // this basically sets the clear color color
+        // glClear(GL_COLOR_BUFFER_BIT); // this actually clears the color buffer
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+
+        glUseProgram(shader_program);
+
+        glBindVertexArray(VAO);
+        glPointSize(5.0f);
+        glDrawArrays(GL_POINTS, 0, num_points);
+        // glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+        // glDrawElements(GL_TRIANGLES, 3*6, GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
+
+        glfwSwapBuffers(window);
+        glfwPollEvents();
+    }
+
+    glfwTerminate();
+
     return 0;
 }
+
+// MAIN
+int main (int argc, char *argv[]) {
+    earth_moon_simulation(10000, 20, 365.25 * 20.0 * 24.0 * 3600.0);
+    // double days = 365.25 * 30.0;
+    // three_body_simulation(0.0, days * 24.0 * 3600.0, 5.0*86400.0);
+    openglDisplay();
+    return 0;
+}
+
+
 
 void timestep_euler(std::vector<gravitationalBody>& bodies, std::vector<glm::dvec3>& acceleration_junk, double step_size, accel_func acc_func) {
     acceleration_junk.resize(bodies.size());
@@ -566,3 +668,156 @@ std::vector<glm::dvec3>& operator*=(std::vector<glm::dvec3>& vec1, double scalar
     _scalarMul2_vec_dvec3(vec1, scalar);
     return vec1;
 }
+
+
+std::vector<simulationFrame> run_nbody_simulation(
+    size_t integration_steps, 
+    size_t samples, 
+    size_t length_simulation, 
+    std::vector<gravitationalBody> bodies, 
+    generic_integrator integration_method) 
+{
+    size_t sampling_divisor = integration_steps / samples;
+    double a = 0, b = (length_simulation);
+    double step_size = ((double)(b - a)) / ((double)integration_steps);
+
+    integrator this_integrator(integration_method, calculate_gravitational_acceleration, step_size);
+
+    std::vector<simulationFrame> datalog;
+    
+
+    for (size_t s = 0; s < integration_steps; s++) {
+        this_integrator.integrate(bodies);
+
+        if (s % sampling_divisor == 0) {
+            double currentTime = a + s * step_size;
+            datalog.push_back({bodies, currentTime});
+        }
+    }
+    return datalog;
+}
+
+std::vector<simulationFrame> run_nbody_simulation_prime(
+    double sim_start,
+    double sim_end,
+    double step_size,
+    size_t samples,
+    std::vector<gravitationalBody> bodies,
+    generic_integrator integration_method)
+{
+    size_t num_integration_steps = (size_t)((sim_end - sim_start) / step_size);
+    integrator this_integrator = integrator(integration_method, calculate_gravitational_acceleration, step_size);
+
+    return run_nbody_simulation(num_integration_steps, samples, sim_end - sim_start, bodies, integration_method);
+}
+
+std::vector<std::vector<simulationFrame>> three_body_simulation(double sim_start, double sim_end, double step_size) {
+    const size_t num_bodies = 3;
+
+    float angle1[2] = {30.0, 20.0 };
+    float angle2[2] = {-20.0, 80.0};
+    float angle3[2] = {60, 110};
+
+    glm::vec3 x(1,0,0), y(0,1,0), z(0,0,1);
+
+    // first chain of rotations
+    glm::mat4 R1_a = glm::rotate(glm::mat4(1.0f), glm::radians(angle1[0]), x);
+    glm::mat4 R1_b = glm::rotate(glm::mat4(1.0f), glm::radians(angle1[1]), y);
+    // second chain
+    glm::mat4 R2_a = glm::rotate(glm::mat4(1.0f), glm::radians(angle2[0]), x);
+    glm::mat4 R2_b = glm::rotate(glm::mat4(1.0f), glm::radians(angle2[1]), y);
+    // third chain
+    glm::mat4 R3_a = glm::rotate(glm::mat4(1.0f), glm::radians(angle3[0]), x);
+    glm::mat4 R3_b = glm::rotate(glm::mat4(1.0f), glm::radians(angle3[1]), y);
+
+    glm::vec4 _r1 = R1_a * R1_b * glm::vec4(z, 0.0f);
+    glm::dvec3 r1 = glm::dvec3(_r1);
+
+    glm::vec3 _r2 = R2_b * R2_a * glm::vec4(z, 0.0);
+    glm::dvec3 r2 = glm::dvec3(_r2);
+
+    glm::vec3 _r3 = R3_b * R3_a * glm::vec4(z, 0.0);
+    glm::dvec3 r3 = glm::dvec3(_r3);
+
+    double large_dist = DIST_EARTH_MOON * 100.0f;
+    double large_speed = MOON_EARTH_VELOCITY * 10.0;
+    double large_mass = MASS_MARS;
+
+    std::vector<gravitationalBody> bodies = {
+        {large_mass * 1.32, large_dist * r1, large_speed * r2},
+        {large_mass * 0.82, large_dist * r2, large_speed * r3},
+        {large_mass * 1.58, large_dist * r3, large_speed * r1}
+    };
+
+    std::vector<simulationFrame> rk2_datalog = run_nbody_simulation_prime(sim_start, sim_end, step_size, 20, bodies, timestep_RK2);
+    
+    std::vector<simulationFrame> rk4_datalog = run_nbody_simulation_prime(sim_start, sim_end, step_size, 20, bodies, timestep_RK4);
+
+    std::println("3 body simulation");
+
+    std::println("{} Data Analysis", integrator::integrator_names[1]);
+    analyse_data_log(rk2_datalog);
+
+    std::println("{} Data Analysis", integrator::integrator_names[2]);
+    analyse_data_log(rk4_datalog);
+
+    return {rk2_datalog, rk4_datalog};
+}
+
+std::vector<std::vector<simulationFrame>> earth_moon_simulation(size_t integration_steps, size_t samples, double number_of_days) {
+    const size_t num_bodies = 2;
+
+    std::vector<gravitationalBody> bodies= {
+        {MASS_EARTH, {0, 0,0},{0, 0,0}},
+        {MASS_MOON, {0,DIST_EARTH_MOON,0},{MOON_EARTH_VELOCITY,0,0}},
+    };
+
+
+    std::vector<simulationFrame> forward_euler_datalog = 
+        run_nbody_simulation(integration_steps, samples, number_of_days, bodies, timestep_euler);
+
+    std::vector<simulationFrame> rk2_datalog= 
+        run_nbody_simulation(integration_steps, samples, number_of_days, bodies, timestep_RK2);
+    
+    std::vector<simulationFrame> rk4_datalog= 
+        run_nbody_simulation(integration_steps, samples, number_of_days, bodies, timestep_RK4);
+    
+    std::println("2 body Earth moon simulation\n");
+    std::println("{} Data Analysis", integrator::integrator_names[0]);
+    analyse_data_log(forward_euler_datalog);
+
+    std::println("{} Data Analysis", integrator::integrator_names[1]);
+    analyse_data_log(rk2_datalog);
+
+    std::println("{} Data Analysis", integrator::integrator_names[2]);
+    analyse_data_log(rk4_datalog);
+
+    return {forward_euler_datalog, rk2_datalog, rk4_datalog};
+}
+
+
+bool display_opengl_shader_compilation_error(unsigned int thisShader) {
+    int sucess;
+    char infoLog[512];
+    glGetShaderiv(thisShader, GL_COMPILE_STATUS, &sucess);
+
+    if (!sucess)
+    {
+        glGetShaderInfoLog(thisShader, 512, NULL, infoLog);
+        std::cout << "ERROR::SHADER::COMPILATION_FAILED\n" << infoLog << std::endl;
+        return true;
+    }
+    return false;
+}
+
+bool display_opengl_program_compilation_error(unsigned int program) {
+    int sucess;
+    char infoLog[512];
+    glGetProgramiv(program, GL_LINK_STATUS, &sucess);
+    if (!sucess) {
+        glGetProgramInfoLog(program, 512, NULL, infoLog);
+        std::cout << "ERROR::PROGRAM::COMPILATION_FAILED\n" << infoLog << std::endl;
+        return true;
+    }
+    return false;
+};
