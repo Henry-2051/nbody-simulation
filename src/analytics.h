@@ -13,7 +13,10 @@
 #include <string_view>
 #include <vector>
 #include <iostream>
-#include <Eigen/Eigen>
+// #include <Eigen/Eigen>
+#include "datatypes.h"
+
+#pragma once
 
 #define GRAV_G 6.67408e-11
 #define MASS_EARTH 5.9722e24
@@ -28,26 +31,6 @@
 // double mass  8 bytes
 // glm::dvec3 position 24 bytes
 // glm::dvec3 velocity 24 bytes
-struct gravitationalBody {
-    double mass; 
-    glm::dvec3 position;
-    glm::dvec3 velocity;
-};
-
-
-struct simulationFrame {
-    std::vector<gravitationalBody> bodies;
-    double time;
-    // by default we are going to assume that every element of the array 
-    // contains a valid gravitational body datapoint, if the situation arrises where we want to test
-    // something weird like add another gravitational body mid simulation we will have to take care 
-    // of this.
-};
-
-struct BoundingBox {
-    glm::dvec3 min;
-    glm::dvec3 max;
-};
 
 inline void calculate_gravitational_acceleration(const std::vector<gravitationalBody> &bodies, std::vector<glm::dvec3>& acceleration) {
     acceleration.resize(bodies.size());
@@ -81,7 +64,8 @@ inline std::ostream& operator<<(std::ostream& os, glm::dvec3 const& v)
 ///  - velocity    uniformly in [box.min, box.max]
 ///  - mass        uniformly in [massMin, massMax]
 inline std::vector<gravitationalBody>
-generateRandomBodies(const BoundingBox &box,
+generateRandomBodies(const BoundingBox &pos_box,
+                     const BoundingBox &vel_box,
                      std::size_t         N,
                      uint32_t            seed,
                      double              massMin   = 1.0,
@@ -91,14 +75,14 @@ generateRandomBodies(const BoundingBox &box,
     std::mt19937_64 rng(seed);
 
     // position distributions
-    std::uniform_real_distribution<double> distX(box.min.x, box.max.x);
-    std::uniform_real_distribution<double> distY(box.min.y, box.max.y);
-    std::uniform_real_distribution<double> distZ(box.min.z, box.max.z);
+    std::uniform_real_distribution<double> distX(pos_box.min.x, pos_box.max.x);
+    std::uniform_real_distribution<double> distY(pos_box.min.y, pos_box.max.y);
+    std::uniform_real_distribution<double> distZ(pos_box.min.z, pos_box.max.z);
 
     // velocity uses same box
-    std::uniform_real_distribution<double> velX(box.min.x, box.max.x);
-    std::uniform_real_distribution<double> velY(box.min.y, box.max.y);
-    std::uniform_real_distribution<double> velZ(box.min.z, box.max.z);
+    std::uniform_real_distribution<double> velX(vel_box.min.x, vel_box.max.x);
+    std::uniform_real_distribution<double> velY(vel_box.min.y, vel_box.max.y);
+    std::uniform_real_distribution<double> velZ(vel_box.min.z, vel_box.max.z);
 
     // mass distribution
     std::uniform_real_distribution<double> massDist(massMin, massMax);
@@ -125,37 +109,89 @@ inline std::string get_str_glm_vec3(glm::dvec3 vec, std::string_view name) {
     return std::format("{}: ({}, {}, {})", name, vec.x, vec.y, vec.z);
 }
 
+void just_print_glm_vec3(const glm::vec3& vec) {
+    std::println("({}, {}, {})", vec.x, vec.y, vec.z);
+}
+
 inline void print_glm_vec3(glm::dvec3 vec, std::string_view name) {
     std::cout << get_str_glm_vec3(vec, name) << "\n";
 }
 
-float calculate_kinetic_energy(simulationFrame& frame) {
+inline std::vector<glm::dvec3>
+extract_positions(std::vector<gravitationalBody> const& bodies)
+{
+    std::vector<glm::dvec3> pos;
+    pos.reserve(bodies.size());
+    for (auto const& b : bodies)
+        pos.push_back(b.position);
+    return pos;
+}
+
+inline void print_positions_fmt(std::vector<glm::dvec3> const& positions)
+{
+    for (size_t i = 0; i < positions.size(); ++i) {
+        auto const& p = positions[i];
+        // no extra spaces in the tuple if you want exactly (x,y,z)
+        std::cout 
+          << std::format("point{}: ({},{},{})\n",
+                         i+1,
+                         p.x, p.y, p.z);
+    }
+}
+
+double get_max_dimension(std::vector<gravitationalBody> bodies) {
+    std::vector<glm::dvec3> pos_vec = extract_positions(bodies);
+
+    double max_dim = 0.0;
+
+    auto update_max_dim = [&max_dim](double value) {
+        if (value > max_dim) {
+            max_dim = value;
+        }
+    };
+
+    for (auto& pos : pos_vec) {
+        update_max_dim(pos.x);
+        update_max_dim(pos.y);
+        update_max_dim(pos.z);
+    }
+
+    return max_dim;
+}
+double calculate_kinetic_energy(std::vector<gravitationalBody>& bodies) {
     double ke {0};
-    for (size_t i = 0; i < frame.bodies.size(); i++) {
-        gravitationalBody body = frame.bodies[i];
+    for (size_t i = 0; i < bodies.size(); i++) {
+        gravitationalBody body = bodies[i];
         ke += (0.5l) * body.mass * glm::dot(body.velocity, body.velocity);
     }
     return ke;
 }
 
-float calculate_gpe(simulationFrame& frame) {
+double calculate_kinetic_energy(simulationFrame& frame) {
+    return calculate_kinetic_energy(frame.bodies);
+}
+
+double calculate_gpe(std::vector<gravitationalBody>& bodies) {
     double pe {0};
     double grav_G = GRAV_G;
     
-    if (frame.bodies.size()<= 1) { return 0.0; }
+    if (bodies.size()<= 1) { return 0.0; }
 
-    for (size_t i = 0; i < frame.bodies.size() - 1; i++) {
-        gravitationalBody body1 = frame.bodies[i];
-        for (size_t j = i + 1; j < frame.bodies.size(); j++) {
-            gravitationalBody body2 = frame.bodies[j];
+    for (size_t i = 0; i < bodies.size() - 1; i++) {
+        gravitationalBody body1 = bodies[i];
+        for (size_t j = i + 1; j < bodies.size(); j++) {
+            gravitationalBody body2 = bodies[j];
 
             glm::dvec3 dr = body1.position - body2.position;
             double seperation = std::sqrt(glm::dot(dr,dr));
             pe -= (grav_G * body1.mass * body2.mass) / seperation;
         }
     }
-
     return pe;
+}
+
+double calculate_gpe(simulationFrame& frame) {
+    return calculate_gpe(frame.bodies);
 }
 
 
