@@ -25,5 +25,6 @@ struct integrator
 
     integrator(generic_integrator timestep_function, accel_func_signiture acc_func, double step_size);
 
+    void timestep_system(std::vector<gravitationalBody>& bodies, double step_size);
     double integrate(std::vector<gravitationalBody>& bodies, double current_time, double destination_time);
 };

@@ -49,19 +49,41 @@ bool display_opengl_program_compilation_error(unsigned int program);
 
 std::vector<gravitationalBody> generate_thousand_random_bodies() {
     BoundingBox pos_box {{-1000,-1000,-1000}, {1000,1000,1000}};
-    pos_box.min *= 100.0;
-    pos_box.max *= 100.0;
+    pos_box.min *= 10.0;
+    pos_box.max *= 10.0;
 
-    BoundingBox vel_box {{-0,-0,-0}, {0,0,0}};
+    BoundingBox vel_box {{-1,-1,-1}, {1,1,1}};
+    vel_box.min *= 0.5;
+    vel_box.max *= 0.5;
 
     const std::size_t num_points      = 1000;
-    uint32_t    seed   = 12345;
-    double      mMin   = 1e5;
+    uint32_t    seed   = 123456;
+    double      mMin   = 1e8;
     double      mMax   = 1e10;
 
     std::vector<gravitationalBody> bodies = generateRandomBodies(pos_box, vel_box, num_points, seed, mMin, mMax);
 
     return bodies;
+}
+
+std::function<std::vector<gravitationalBody>()> generate_three_body_generator(size_t seed) {
+    return [seed](){
+        BoundingBox pos_box {{-1000,-1000,-1000}, {1000,1000,1000}};
+        pos_box.min *= 1.0;
+        pos_box.max *= 1.0;
+
+        BoundingBox vel_box {{-1,-1,-1}, {1,1,1}};
+        vel_box.min *= 0.01;
+        vel_box.max *= 0.01;
+
+        const std::size_t num_points   = 3;
+        double      mMin   = 1e10;
+        double      mMax   = 1e10;
+
+        std::vector<gravitationalBody> bodies = generateRandomBodies(pos_box, vel_box, num_points, seed, mMin, mMax);
+
+        return bodies;
+    };
 }
 
 std::vector<gravitationalBody> earth_moon_bodies() {
@@ -135,6 +157,10 @@ namespace gl_window_globals {
     float far_plane_view_distance = 1000000.0;
 
     float fps = 60.0;
+    float average_pixel_size = 3.0;
+    float maximum_pixel_size = 15.0;
+    double average_asteroid_mass;
+
 }
 
 
@@ -163,38 +189,34 @@ integrator::integrator(generic_integrator timestep_function, accel_func_signitur
     }
 }
 
-
-double
-integrator::integrate(std::vector<gravitationalBody>& bodies, double currentTime, double destinationTime) {
-    std::function<void(void)> integration_step;
+void 
+integrator::timestep_system(std::vector<gravitationalBody>& bodies, double deltaT) {
     if (std::holds_alternative<forward_euler_function_signiture_interface>(integration_method)) 
     {
         forward_euler_function_signiture_interface euler_integrator = std::get<forward_euler_function_signiture_interface>(integration_method);
-        integration_step = [&bodies, this, &euler_integrator](){
-            euler_integrator(bodies, acceleration_junk_data, step_size, acceleration_function);
-        };
+        euler_integrator(bodies, acceleration_junk_data, deltaT, acceleration_function);
     } 
     else if (std::holds_alternative<RK2_function_signiture>(integration_method)) 
     {
         RK2_function_signiture rk2_integrator = std::get<RK2_function_signiture>(integration_method);
-        integration_step = [&bodies, this, &rk2_integrator]() {
-            rk2_integrator(bodies, single_body_data, acceleration_junk_data, step_size, acceleration_function, forward_euler);
-        };
+        rk2_integrator(bodies, single_body_data, acceleration_junk_data, deltaT, acceleration_function, forward_euler);
     } 
     else if (std::holds_alternative<RK4_function_signiture>(integration_method))
     {
         RK4_function_signiture rk4_integrator = std::get<RK4_function_signiture>(integration_method);
-        integration_step = [&bodies, this, &rk4_integrator]() {
-            rk4_integrator(bodies, triple_gravitational_body_data, acceleration_quadruple_junk_data, step_size, acceleration_function);
-        };
+        rk4_integrator(bodies, triple_gravitational_body_data, acceleration_quadruple_junk_data, deltaT, acceleration_function);
     }
+}
 
-    while (currentTime <= destinationTime) {
-        currentTime += step_size;
-        integration_step();
+double
+integrator::integrate(std::vector<gravitationalBody>& bodies, double start_time, double end_time) {
+    double integration_period = end_time - start_time;
+    size_t amount_steps = std::max(size_t(1), (size_t)(integration_period / step_size)) ;
+    for (int i = 0; i < amount_steps; i++) {
+        start_time += step_size;
+        timestep_system(bodies, step_size);
     }
-
-    return currentTime;
+    return start_time;
 }
 
 
@@ -249,6 +271,18 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 }
 
 
+double find_average_mass_of_bodies(std::vector<gravitationalBody>& bodies){
+    size_t N = bodies.size();
+    double total_mass {0};
+
+    for (auto& body : bodies) {
+        total_mass += body.mass;
+    }
+
+    return (total_mass / N);
+}
+
+
 int openglDisplay(simulation_description sim_desc) {
     unsigned int VBO, VAO, EBO, vertex_shader, fragment_shader, shader_program;
 
@@ -291,18 +325,13 @@ int openglDisplay(simulation_description sim_desc) {
     // helper function to ensure float_bodies_positions mirrors the positions 
     // within bodies but using vec3 rather than dvec3 for opengl
     auto recalc_float_pos = [&bodies, &float_body_positions](){
-
         if (bodies.size() != float_body_positions.size()) {
             float_body_positions.resize(bodies.size());
         }
-
         for (int i = 0; i < bodies.size(); i ++) {
             float_body_positions[i] = bodies[i].position;
         }
     };
-
-    double target_step_size = 600;
-
 
     // HARDCODED EARTH MOON
 
@@ -311,7 +340,7 @@ int openglDisplay(simulation_description sim_desc) {
     double max_dimension = get_max_dimension(bodies);
     float draw_scale_factor = 1000.0 / max_dimension;
     
-    std::println("scale factor calculated as : {}", draw_scale_factor);
+    // std::println("scale factor calculated as : {}", draw_scale_factor);
 
     auto scale_float_positions = [&float_body_positions, draw_scale_factor]() {
         for (auto& pos : float_body_positions) {
@@ -393,35 +422,43 @@ int openglDisplay(simulation_description sim_desc) {
 
     glm::mat4 projection, view, model;
 
-    integrator this_integrator = integrator(sim_desc.integrator, sim_desc.acceleration_function, sim_desc.step_size_hint);
+    integrator this_integrator = integrator(sim_desc.integrator, sim_desc.acceleration_function, sim_desc.integrator_step_size_hint);
     
     std::chrono::duration<double> one_sec(1.0);
-    auto last_frame = std::chrono::high_resolution_clock::now();
+    // auto last_frame = std::chrono::high_resolution_clock::now();
     double current_simulation_time = sim_desc.start;
-    double combined_energy_last = calculate_gpe(bodies) + calculate_kinetic_energy(bodies);
+    double next_target_time = sim_desc.start + sim_desc.simulation_step_size;
 
+    double combined_energy_last = calculate_gpe(bodies) + calculate_kinetic_energy(bodies);
     auto last_second = std::chrono::high_resolution_clock::now();
     float time_accumulator = 0;
-    size_t count = 0;
-    while((!glfwWindowShouldClose(window))) {
-        count ++;
-        float currentFrame = glfwGetTime();
-        gl_window_globals::deltaTime = currentFrame - gl_window_globals::lastFrame;
-        gl_window_globals::lastFrame = currentFrame;
+    size_t frame_count = 0;
+
+    while((!glfwWindowShouldClose(window)) &&
+        current_simulation_time < sim_desc.end) 
+    {
+        frame_count ++;
+        float current_time = glfwGetTime();
+        gl_window_globals::deltaTime = current_time - gl_window_globals::lastFrame;
+        gl_window_globals::lastFrame = current_time;
         time_accumulator += gl_window_globals::deltaTime;
-        if (count % 60 == 0) {
-            std::cout << "hihi " << time_accumulator << "\n";
+
+        if (frame_count % 60 == 0) {
+            std::cout << "FPS: " << (60.0 / time_accumulator) << "\n";
             time_accumulator = 0;
             double combined_energy_current = calculate_kinetic_energy(bodies) + calculate_gpe(bodies);
             double perc_energy_divergence = 100.0* (combined_energy_current - combined_energy_last) / combined_energy_last;
+            std::println("current energy of the systme  : {}", combined_energy_current);
             std::println("percentage energy divergence : {}", perc_energy_divergence);
+            std::println("current_time = {}\n {}% done", current_simulation_time, (((current_simulation_time - sim_desc.start) * 100.0) / (sim_desc.end - sim_desc.start)));
+            
             combined_energy_last = combined_energy_current;
         }
 
-
-        double target_time = current_simulation_time + target_step_size;
-
-        current_simulation_time = this_integrator.integrate(bodies, current_simulation_time, target_time);
+        // double target_time = current_simulation_time + target_step_size;
+        current_simulation_time = this_integrator.integrate(bodies, current_simulation_time, next_target_time);
+        // this_integrator.timestep_system(bodies, sim_desc.integrator_step_size_hint);
+        next_target_time += sim_desc.simulation_step_size;
         recalc_float_pos();
         scale_float_positions();
 
@@ -455,7 +492,7 @@ int openglDisplay(simulation_description sim_desc) {
         glUniformMatrix4fv(glGetUniformLocation(shader_program, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
         glUniformMatrix4fv(glGetUniformLocation(shader_program, "view"), 1, GL_FALSE, glm::value_ptr(view));
 
-        glClearColor(0.1, 0.05, 0.11, 1.0); // this basically sets the clear color color
+        glClearColor(0.05, 0.02, 0.07, 1.0); // this basically sets the clear color color
         // glClear(GL_COLOR_BUFFER_BIT); // this actually clears the color buffer
 
 
@@ -465,13 +502,10 @@ int openglDisplay(simulation_description sim_desc) {
         glBindVertexArray(VAO);
         glBufferSubData(GL_ARRAY_BUFFER, 0, bodies.size() * sizeof(glm::vec3), float_body_positions.data());
 
-        // glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0); // positions
-        glPointSize(5.0f);
+        glPointSize(1.0f);
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        glDrawArrays(GL_POINTS, 0, bodies.size());
-        // glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-        // glDrawElements(GL_TRIANGLES, 3*6, GL_UNSIGNED_INT, 0);
+        glDrawArrays(GL_POINTS, 0, bodies.size()); // HERE 
         glBindVertexArray(0);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         glfwSwapBuffers(window);
@@ -486,11 +520,11 @@ int openglDisplay(simulation_description sim_desc) {
 // MAIN
 int main (int argc, char *argv[]) {
     // earth_moon_simulation(10000, 20, 365.25 * 20.0 * 24.0 * 3600.0);
-
     simulation_description three_body_example_simulation_description {
-        three_body_example_bodies,
-        0.0, 365.25 * 1.0 * 24.0 * 3600.0,
-        150,
+        generate_three_body_generator(12308045),
+        0.0, 15.0 * 24.0 * 3600.0,
+        0.01,
+        600,
         timestep_RK4,
         calculate_gravitational_acceleration,
     };
@@ -502,6 +536,7 @@ int main (int argc, char *argv[]) {
         earth_moon_bodies,
         0.0, earth_moon_num_seconds,
         earth_moon_step_size,
+        earth_moon_step_size,
         timestep_RK4,
         calculate_gravitational_acceleration,
     };
@@ -509,16 +544,21 @@ int main (int argc, char *argv[]) {
     simulation_description thousand_bodies {
         generate_thousand_random_bodies,
         0.0, 365.25 * 24.0 * 3600.0,
-        50,
-        timestep_euler,
+        100,
+        100,
+        timestep_RK4,
         calculate_gravitational_acceleration,
+    };
+
+    simulation_description two_body_collision {
+
     };
 
     // double days = 365.25 * 30.0;
     // three_body_simulation(0.0, days * 24.0 * 3600.0, 5.0*86400.0);
     //
     // three_body_simulation(three_body_example_simulation_description);
-    openglDisplay(thousand_bodies);
+    openglDisplay(three_body_example_simulation_description);
     // earth_moon_simulation(earth_moon_simulation_description);
     return 0;
 }
@@ -687,9 +727,9 @@ std::vector<std::vector<simulationFrame>> three_body_simulation(simulation_descr
 
     std::vector<gravitationalBody> bodies = three_body_example_bodies();
 
-    std::vector<simulationFrame> rk2_datalog = run_nbody_simulation(desc.start, desc.end, desc.step_size_hint, 20, bodies, timestep_RK2);
+    std::vector<simulationFrame> rk2_datalog = run_nbody_simulation(desc.start, desc.end, desc.integrator_step_size_hint, 20, bodies, timestep_RK2);
     
-    std::vector<simulationFrame> rk4_datalog = run_nbody_simulation(desc.start, desc.end, desc.step_size_hint, 20, bodies, timestep_RK4);
+    std::vector<simulationFrame> rk4_datalog = run_nbody_simulation(desc.start, desc.end, desc.integrator_step_size_hint, 20, bodies, timestep_RK4);
 
     std::println("3 body simulation");
 
