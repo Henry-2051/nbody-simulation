@@ -14,6 +14,29 @@ find_package(GLEW       REQUIRED)   # provides GLE::GLEW
 find_package(glfw3 3.3  REQUIRED)   # provides glfw::glfw
 # find_package(Eigen3 3.3 REQUIRED NO_MODULE)  # provides Eigen3::Eigen
 find_package(Catch2 3    REQUIRED)   # provides Catch2::Catch2WithMain
+find_package(imgui  REQUIRED)
+
+# set(IMGUI_SRC_DIR "${CMAKE_SOURCE_DIR}/src/imgui")
+#
+# add_library(imgui_s STATIC
+#     ${IMGUI_SRC_DIR}/imgui.cpp
+#     ${IMGUI_SRC_DIR}/imgui_draw.cpp
+#     ${IMGUI_SRC_DIR}/imgui_tables.cpp
+#     ${IMGUI_SRC_DIR}/imgui_widgets.cpp
+#     ${IMGUI_SRC_DIR}/backends/imgui_impl_glfw.cpp
+#     ${IMGUI_SRC_DIR}/backends/imgui_impl_opengl3.cpp
+# )
+#
+# target_include_directories(imgui_s PUBLIC
+#     ${IMGUI_SRC_DIR} 
+#     ${IMGUI_SRC_DIR}/backends
+# )
+#
+# target_link_libraries(imgui_s PUBLIC
+#     GL 
+#     GLEW
+#     glfw
+# )
 
 # 4) Collect your application sources
 file(GLOB_RECURSE APP_SOURCES
@@ -24,12 +47,15 @@ list(FILTER APP_SOURCES EXCLUDE REGEX ".*test.*")
 
 # 5) Build the nbody executable
 add_executable(nbody ${APP_SOURCES})
-target_include_directories(nbody PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(nbody PRIVATE 
+    ${CMAKE_SOURCE_DIR}/src
+)
 target_link_libraries(nbody
   PRIVATE
     GL
     GLEW
     glfw
+    imgui
 )
 
 # 6) Build the Catch2 test runner
@@ -44,6 +70,7 @@ target_link_libraries(NBodyTests
     GL       # if your tests need GL/GLEW as well, otherwise drop these
     GLEW
     glfw
+    imgui
 )
 
 # 7) Enable CTest integration

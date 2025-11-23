@@ -24,11 +24,14 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <print>
-#include <thread>
 #include <vector>
 #include <iostream>
 #include <variant>
 #include <chrono>
+#include <imgui.h>
+#include <imgui_impl_glfw.h>
+#include <imgui_impl_opengl3.h>
+
 #include "integration_signitures.h"
 #include "datatypes.h"
 
@@ -161,6 +164,14 @@ namespace gl_window_globals {
     float maximum_pixel_size = 15.0;
     double average_asteroid_mass;
 
+    bool opengl_mouse_disabled {true};
+
+    bool imgui_show_demo_window {false};
+    bool imgui_show_another_windw {false};
+    ImVec4 clear_color = ImVec4(6.0 / 255.0, 11.0 / 255.0, 13.0 / 255.0, 1.00f);
+
+    uint8_t middle_button_state_last_frame {GLFW_RELEASE};
+    float point_draw_size = 2;
 }
 
 
@@ -230,6 +241,8 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 }
 
 void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
+    bool mouse_captured = glfwGetInputMode(window, GLFW_CURSOR) == GLFW_CURSOR_DISABLED;
+    if (!mouse_captured) { return; }
     float xoffset = xpos - gl_window_globals::lastX;
     float yoffset = gl_window_globals::lastY - ypos; // reversed since y-coordinates range from bottom to top
     gl_window_globals::lastX = xpos;
@@ -261,6 +274,19 @@ void processInput(GLFWwindow *window)
         gl_window_globals::cameraPos -= glm::normalize(glm::cross(gl_window_globals::cameraFront, gl_window_globals::cameraUp)) * cameraSpeed;
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
         gl_window_globals::cameraPos += glm::normalize(glm::cross(gl_window_globals::cameraFront, gl_window_globals::cameraUp)) * cameraSpeed;
+
+    uint8_t middle_button_state = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE);
+
+    if (middle_button_state == GLFW_PRESS && gl_window_globals::middle_button_state_last_frame == GLFW_RELEASE) {
+
+        if (glfwGetInputMode(window, GLFW_CURSOR) == GLFW_CURSOR_DISABLED) 
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        else if (glfwGetInputMode(window, GLFW_CURSOR) == GLFW_CURSOR_NORMAL) {
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);}
+
+        gl_window_globals::middle_button_state_last_frame = true;
+    } 
+    gl_window_globals::middle_button_state_last_frame = middle_button_state;
 }
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
@@ -283,8 +309,10 @@ double find_average_mass_of_bodies(std::vector<gravitationalBody>& bodies){
 }
 
 
+
 int openglDisplay(simulation_description sim_desc) {
     unsigned int VBO, VAO, EBO, vertex_shader, fragment_shader, shader_program;
+    namespace g = gl_window_globals;
 
     const char * vertex_shader_source = R"glsl(
         #version 330 core
@@ -371,6 +399,8 @@ int openglDisplay(simulation_description sim_desc) {
     glViewport(0, 0, 800, 600); // this is the size of the rendering window, 
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
+    
+
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);  
     glfwSetScrollCallback(window, scroll_callback); 
     glfwSetCursorPosCallback(window, mouse_callback);  
@@ -434,6 +464,21 @@ int openglDisplay(simulation_description sim_desc) {
     float time_accumulator = 0;
     size_t frame_count = 0;
 
+    // IMGUI SETUP
+    // Create window with graphics context
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+    // io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+
+    ImGui::StyleColorsDark();
+
+
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL3_Init("#version 330");
+
     while((!glfwWindowShouldClose(window)) &&
         current_simulation_time < sim_desc.end) 
     {
@@ -454,6 +499,29 @@ int openglDisplay(simulation_description sim_desc) {
             
             combined_energy_last = combined_energy_current;
         }
+
+        // IMGUI DISPLAY
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
+        {
+            ImGui::Begin("Hello, world!");                          // Create a window called "Hello, world!" and append into it.
+
+            ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
+            ImGui::Checkbox("System analytics", &gl_window_globals::imgui_show_demo_window);      // Edit bools storing our window open/close state
+            ImGui::Checkbox("System control", &gl_window_globals::imgui_show_another_windw);
+
+            ImGui::ColorEdit3("clear color", (float*)&gl_window_globals::clear_color); // Edit 3 floats representing a color
+            ImGui::SliderFloat("point size", &g::point_draw_size, 1.0f, 20.0f);
+
+
+            ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+            ImGui::End();
+        }
+
+
+
 
         // double target_time = current_simulation_time + target_step_size;
         current_simulation_time = this_integrator.integrate(bodies, current_simulation_time, next_target_time);
@@ -492,9 +560,12 @@ int openglDisplay(simulation_description sim_desc) {
         glUniformMatrix4fv(glGetUniformLocation(shader_program, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
         glUniformMatrix4fv(glGetUniformLocation(shader_program, "view"), 1, GL_FALSE, glm::value_ptr(view));
 
-        glClearColor(0.05, 0.02, 0.07, 1.0); // this basically sets the clear color color
-        // glClear(GL_COLOR_BUFFER_BIT); // this actually clears the color buffer
 
+        glClearColor(g::clear_color.x * g::clear_color.w, g::clear_color.y * g::clear_color.w, g::clear_color.z * g::clear_color.w, g::clear_color.w);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         glUseProgram(shader_program);
 
@@ -502,9 +573,8 @@ int openglDisplay(simulation_description sim_desc) {
         glBindVertexArray(VAO);
         glBufferSubData(GL_ARRAY_BUFFER, 0, bodies.size() * sizeof(glm::vec3), float_body_positions.data());
 
-        glPointSize(1.0f);
+        glPointSize(g::point_draw_size);
 
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glDrawArrays(GL_POINTS, 0, bodies.size()); // HERE 
         glBindVertexArray(0);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
