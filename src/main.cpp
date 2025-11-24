@@ -521,9 +521,9 @@ int openglDisplay(simulation_description sim_desc) {
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
         {
-            ImGui::Begin("Hello, world!");                          // Create a window called "Hello, world!" and append into it.
-
-            ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
+            // ImGui::Begin("Hello, world!");                          // Create a window called "Hello, world!" and append into it.
+            //
+            // ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
             ImGui::Checkbox("System analytics", &g::system_analytics_window);      // Edit bools storing our window open/close state
             ImGui::Checkbox("System control", &g::system_control);
 
@@ -762,6 +762,96 @@ void timestep_RK4(
     for (size_t i = 0; i < bodies.size(); i++) {
         bodies[i].position += (step_size / 6.0) * (bodies[i].velocity + 2.0 * x2[i].velocity + 2.0 * x3[i].velocity + x4[i].velocity);
         bodies[i].velocity += (step_size / 6.0) * (a1[i] + 2.0 * a2[i] + 2.0 * a3[i] + a4[i]);
+    }
+}
+
+// if 2 bodies will collide in the next timestep we must change their velocities
+// we check whether they will collide with a number of methods
+// first we calculate whether they are moving towards or away from thier combined center of mass 
+// in their reference frame 
+// then if they are we can solve the linear system of equations to see whether if they continued moving 
+// with their current trajectories what their minimum seperation would be. We can  do this becasue the seperation
+// between the bodies is quadratic wrt time. so we differentiate to find the inflection point.
+// If this check goes through we can just solve the quadratic equation and find where they collide, we choose the smallest positive time 
+// and calculate the difference vector then we apply the momentum conserving collision formulae calculating the new velocity vector 
+// its possible to include an acceleration term and solve a cubic, but for simplicty lets assume gravity is 
+// much weaker than the impulse in a collision
+
+// first off we're going  to write the n^2 algorithm
+// we dont even know the function signiture for the n log n algorithm because we havent decided on a space partitioning scheme
+void brute_force_collision_resolution_velocity_change_calculation(const std::vector<gravitationalBody>& bodies, std::vector<glm::dvec3>& velocity_change_junk, double step_size) {
+    velocity_change_junk.resize(bodies.size());
+    std::fill(velocity_change_junk.begin(), velocity_change_junk.end(), glm::dvec3(0.0,0.0,0.0));
+
+    for (size_t i = 0; i < (bodies.size() - 1); i++) {
+        for (size_t j = i + 1; j < bodies.size(); j++) {
+            double sum_mass = bodies[i].mass + bodies[j].mass;
+            glm::dvec3 sum_momentum = bodies[i].velocity * bodies[i].mass + bodies[j].velocity * bodies[j].mass;
+            glm::dvec3 vboost = sum_momentum / (sum_mass);
+            glm::dvec3 m_bar = (bodies[i].position * bodies[i].mass + bodies[j].position * bodies[j].mass) / sum_mass;
+
+            // we transition into the lorentz frame of the collision
+            glm::dvec3 v1 = bodies[i].velocity - vboost;
+            glm::dvec3 v2 = bodies[j].velocity - vboost;
+
+            glm::dvec3 r10 = bodies[i].position - m_bar;
+            glm::dvec3 r20 = bodies[j].position - m_bar;
+
+            glm::dvec3 diff_r0 = r10 - r20;
+            glm::dvec3 diff_v = v1 - v2;
+
+            // guard 1
+            if (glm::dot(diff_r0, diff_v) >= 0.0) {
+                continue;
+            }
+            
+            double sphere_rad_sum = bodies[i].radius + bodies[j].radius;
+
+            // quadratic coefficients 
+            double c = glm::dot(diff_r0, diff_r0) - sphere_rad_sum * sphere_rad_sum;
+            double b = 2.0 * glm::dot(diff_r0, diff_v);
+            double a = glm::dot(diff_v, diff_v);
+
+            double determinant = b*b - 4.0*a*c;
+
+            if (determinant <= 0) continue;
+
+            double t1 = (-b + sqrt(determinant)) / (2.0 * a);
+            double t2 = (-b - sqrt(determinant)) / (2.0 * a);
+
+            auto is_time_in_window = [&step_size](double t) {
+                return (t > 0.0 && t <= step_size);
+            };
+            double t;
+
+            if (!is_time_in_window(t1) && !is_time_in_window(t2)) {
+                continue;
+            }
+
+            if (!is_time_in_window(t1)) {
+                t = t2;
+            } else if (!is_time_in_window(t2)) {
+                t = t1;
+            } else {
+                t = std::min(t1, t2);
+            }
+
+            // now we have the time of collision we calculate the difference
+            // this vector pointers from r2 to r1 at the time of collision
+            // the direction point 1 will be going
+
+            glm::dvec3 norm_diff_rt = glm::normalize(diff_r0 + t * diff_v);
+            double rel_normal_velocity_change = -(1.0 + (bodies[i].restitution * bodies[j].restitution)) * glm::dot(diff_v, norm_diff_rt);
+
+            double m1 = bodies[i].mass;
+            double m2 = bodies[j].mass;
+
+            glm::dvec3 delta_v1 = norm_diff_rt * ((m2*rel_normal_velocity_change) / (m1+m2));
+            glm::dvec3 delta_v2 = norm_diff_rt * (-(m1*rel_normal_velocity_change) / (m1+m2));
+
+            velocity_change_junk[i] += delta_v1;
+            velocity_change_junk[j] += delta_v2;
+        }
     }
 }
 

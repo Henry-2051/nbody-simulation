@@ -59,6 +59,10 @@ inline std::ostream& operator<<(std::ostream& os, glm::dvec3 const& v)
     return os << '(' << v.x << ", " << v.y << ", " << v.z << ')';
 }
 
+// using collision_candidate_function_sig = std::function<void(size_t, const std::vector<gravitationalBody>&, std::vector<std::vector<size_t>>&)>;
+
+
+
 /// generate N bodies with
 ///  - position uniformly in [box.min, box.max]
 ///  - velocity    uniformly in [box.min, box.max]

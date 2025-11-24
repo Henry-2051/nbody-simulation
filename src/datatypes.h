@@ -6,6 +6,8 @@ struct gravitationalBody {
     double mass; 
     glm::dvec3 position;
     glm::dvec3 velocity;
+    double radius;
+    double restitution{1.0};
 };
 
 
