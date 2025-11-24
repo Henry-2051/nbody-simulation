@@ -166,16 +166,25 @@ namespace gl_window_globals {
 
     bool opengl_mouse_disabled {true};
 
-    bool imgui_show_demo_window {false};
-    bool imgui_show_another_windw {false};
+    bool system_analytics_window {false};
+    bool system_control {false};
     ImVec4 clear_color = ImVec4(6.0 / 255.0, 11.0 / 255.0, 13.0 / 255.0, 1.00f);
 
     uint8_t middle_button_state_last_frame {GLFW_RELEASE};
     float point_draw_size = 2;
+
+    bool paused = true;
+    size_t paused_state_execute_frames = 0;
+    
+    size_t metric_log_length = 1;
+    size_t metric_log_current_position = 0;
+    std::unique_ptr<SystemMetrics[]> metric_log;
 }
 
-
-
+namespace simulation_globals {
+    simulation_description desc;
+    integrator* inte = nullptr;
+}
 
 integrator::integrator(generic_integrator timestep_function, accel_func_signiture acc_func, double step_size): 
     integration_method(timestep_function), 
@@ -199,6 +208,8 @@ integrator::integrator(generic_integrator timestep_function, accel_func_signitur
         std::cerr << "Error integrator object isnt properly initialised";
     }
 }
+
+integrator::integrator() {}
 
 void 
 integrator::timestep_system(std::vector<gravitationalBody>& bodies, double deltaT) {
@@ -313,6 +324,9 @@ double find_average_mass_of_bodies(std::vector<gravitationalBody>& bodies){
 int openglDisplay(simulation_description sim_desc) {
     unsigned int VBO, VAO, EBO, vertex_shader, fragment_shader, shader_program;
     namespace g = gl_window_globals;
+    namespace gs = simulation_globals;
+
+    gs::desc = sim_desc;
 
     const char * vertex_shader_source = R"glsl(
         #version 330 core
@@ -361,10 +375,6 @@ int openglDisplay(simulation_description sim_desc) {
         }
     };
 
-    // HARDCODED EARTH MOON
-
-    // float draw_scale_factor = 1.0;
-
     double max_dimension = get_max_dimension(bodies);
     float draw_scale_factor = 1000.0 / max_dimension;
     
@@ -377,6 +387,20 @@ int openglDisplay(simulation_description sim_desc) {
     };
 
     recalc_float_pos();
+
+    double combined_energy_last = calculate_gpe(bodies) + calculate_kinetic_energy(bodies);
+    double combined_energy_current;
+    double perc_energy_divergence;
+
+    g::metric_log = std::make_unique<SystemMetrics[]>(g::metric_log_length);
+    g::metric_log[0] = SystemMetrics(combined_energy_last, 0);
+
+    // now atomic 
+    auto calculate_system_metrics = [&bodies, &combined_energy_current, &perc_energy_divergence, &combined_energy_last]() {
+            combined_energy_current = calculate_kinetic_energy(bodies) + calculate_gpe(bodies);
+            perc_energy_divergence = 100.0 * (combined_energy_current - combined_energy_last) / combined_energy_last;
+    };
+
 
     // size_t max_points = bodies.size() * 2;
 
@@ -399,7 +423,6 @@ int openglDisplay(simulation_description sim_desc) {
     glViewport(0, 0, 800, 600); // this is the size of the rendering window, 
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
-    
 
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);  
     glfwSetScrollCallback(window, scroll_callback); 
@@ -451,16 +474,16 @@ int openglDisplay(simulation_description sim_desc) {
     glDeleteShader(fragment_shader);  
 
     glm::mat4 projection, view, model;
-
-    integrator this_integrator = integrator(sim_desc.integrator, sim_desc.acceleration_function, sim_desc.integrator_step_size_hint);
+    // this is the only place where we are conducting pointer shenanigans with this variable, its 
+    // good practice to free the resource before assigning a new resource, preventing a memory leak
     
-    std::chrono::duration<double> one_sec(1.0);
+    delete gs::inte;
+    gs::inte = new integrator(sim_desc.integrator, sim_desc.acceleration_function, sim_desc.integrator_step_size_hint);
+    
     // auto last_frame = std::chrono::high_resolution_clock::now();
     double current_simulation_time = sim_desc.start;
     double next_target_time = sim_desc.start + sim_desc.simulation_step_size;
 
-    double combined_energy_last = calculate_gpe(bodies) + calculate_kinetic_energy(bodies);
-    auto last_second = std::chrono::high_resolution_clock::now();
     float time_accumulator = 0;
     size_t frame_count = 0;
 
@@ -478,57 +501,73 @@ int openglDisplay(simulation_description sim_desc) {
 
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
-
     while((!glfwWindowShouldClose(window)) &&
         current_simulation_time < sim_desc.end) 
     {
-        frame_count ++;
+        if (!g::paused) frame_count ++;
+
         float current_time = glfwGetTime();
         gl_window_globals::deltaTime = current_time - gl_window_globals::lastFrame;
         gl_window_globals::lastFrame = current_time;
         time_accumulator += gl_window_globals::deltaTime;
 
-        if (frame_count % 60 == 0) {
-            std::cout << "FPS: " << (60.0 / time_accumulator) << "\n";
-            time_accumulator = 0;
-            double combined_energy_current = calculate_kinetic_energy(bodies) + calculate_gpe(bodies);
-            double perc_energy_divergence = 100.0* (combined_energy_current - combined_energy_last) / combined_energy_last;
-            std::println("current energy of the systme  : {}", combined_energy_current);
-            std::println("percentage energy divergence : {}", perc_energy_divergence);
-            std::println("current_time = {}\n {}% done", current_simulation_time, (((current_simulation_time - sim_desc.start) * 100.0) / (sim_desc.end - sim_desc.start)));
-            
-            combined_energy_last = combined_energy_current;
+        // calculate_gpe is a relatively expensive call of order n^2, comparable to timestepping the system
+        if ((!g::paused) && g::system_analytics_window) {
+            calculate_system_metrics();
         }
 
         // IMGUI DISPLAY
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
-
         {
             ImGui::Begin("Hello, world!");                          // Create a window called "Hello, world!" and append into it.
 
             ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
-            ImGui::Checkbox("System analytics", &gl_window_globals::imgui_show_demo_window);      // Edit bools storing our window open/close state
-            ImGui::Checkbox("System control", &gl_window_globals::imgui_show_another_windw);
+            ImGui::Checkbox("System analytics", &g::system_analytics_window);      // Edit bools storing our window open/close state
+            ImGui::Checkbox("System control", &g::system_control);
 
+            ImGui::Checkbox("paused", &g::paused);
             ImGui::ColorEdit3("clear color", (float*)&gl_window_globals::clear_color); // Edit 3 floats representing a color
             ImGui::SliderFloat("point size", &g::point_draw_size, 1.0f, 20.0f);
 
+
+            ImGui::Text("Simulation world time: %.0f seconds\nSimulation progress: %.1f%%", current_simulation_time, (((current_simulation_time - sim_desc.start) * 100.0) / (sim_desc.end - sim_desc.start)));
+            ImGui::Text("Simulation frame: %zu", frame_count);
 
             ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
             ImGui::End();
         }
 
+        if (g::system_analytics_window) {
+            ImGui::Begin("System analtics", &g::system_analytics_window);
 
+            ImGui::Text("%s", std::format("current energy of the systme  : {:.0f} Joules", combined_energy_current).c_str());
+            ImGui::Text("%s", std::format("percentage energy change from last frame : {:.2e}%%", perc_energy_divergence).c_str());
+            double perc_energy_change_from_start = 100.0 * ((combined_energy_current - g::metric_log[0].combined_energy) / g::metric_log[0].combined_energy);
+            ImGui::Text("%s", std::format("percentage energy change from start : {:.2e}%%", perc_energy_change_from_start).c_str());
+            ImGui::End();
+        }
 
+        if (g::system_control) {
+            ImGui::Begin("System control", &g::system_control);
+            double min = sim_desc.simulation_step_size * 0.1, max = sim_desc.simulation_step_size * 10.0;
+            ImGui::SliderScalar("simulation time per frame", ImGuiDataType_Double, 
+                                &gs::desc.simulation_step_size, &min, &max);
 
-        // double target_time = current_simulation_time + target_step_size;
-        current_simulation_time = this_integrator.integrate(bodies, current_simulation_time, next_target_time);
-        // this_integrator.timestep_system(bodies, sim_desc.integrator_step_size_hint);
-        next_target_time += sim_desc.simulation_step_size;
-        recalc_float_pos();
-        scale_float_positions();
+            min = sim_desc.integrator_step_size_hint* 0.1, max = sim_desc.integrator_step_size_hint * 10.0;
+            ImGui::SliderScalar("integrator step size", ImGuiDataType_Double, &gs::inte->step_size, &min, &max);
+            ImGui::End();
+        }
+
+        if (!g::paused) {
+            combined_energy_last = combined_energy_current;
+
+            current_simulation_time = gs::inte->integrate(bodies, current_simulation_time, next_target_time);
+            next_target_time += gs::desc.simulation_step_size;
+            recalc_float_pos();
+            scale_float_positions();
+        }
 
         // for (auto& pos : float_body_positions) {
         //     std::println("({}, {}, {})", pos.x, pos.y, pos.z);
@@ -592,8 +631,8 @@ int main (int argc, char *argv[]) {
     // earth_moon_simulation(10000, 20, 365.25 * 20.0 * 24.0 * 3600.0);
     simulation_description three_body_example_simulation_description {
         generate_three_body_generator(12308045),
-        0.0, 15.0 * 24.0 * 3600.0,
-        0.01,
+        0.0, 90.0 * 24.0 * 3600.0,
+        0.1,
         600,
         timestep_RK4,
         calculate_gravitational_acceleration,

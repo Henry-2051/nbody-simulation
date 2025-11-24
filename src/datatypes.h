@@ -23,6 +23,10 @@ struct BoundingBox {
     glm::dvec3 max;
 };
 
+struct SystemMetrics {
+    double combined_energy;
+    size_t system_time;
+};
 
 //////////////////////////////
 // opengl specific 

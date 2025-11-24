@@ -15,4 +15,3 @@ struct simulation_description {
     generic_integrator integrator;
     accel_func_signiture acceleration_function;
 };
-
