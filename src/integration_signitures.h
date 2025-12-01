@@ -23,6 +23,11 @@ using RK4_function_signiture = std::function<void(std::vector<gravitationalBody>
 
 using generic_integrator = std::variant<forward_euler_function_signiture_interface, RK2_function_signiture, RK4_function_signiture>;
 
+using brute_force_col_res_func_sig = std::function<void(const std::vector<gravitationalBody>&, std::vector<glm::dvec3>&, double)>;
+using collisions_dissabled_func_sig = std::function<void()>;
+
+using generic_collision_res = std::variant<brute_force_col_res_func_sig, collisions_dissabled_func_sig>;
+
 /**
  * @brief Perform one explicit Euler integration step on a collection of bodies.
  *

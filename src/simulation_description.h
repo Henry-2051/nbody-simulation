@@ -14,4 +14,5 @@ struct simulation_description {
     double simulation_step_size;
     generic_integrator integrator;
     accel_func_signiture acceleration_function;
+    generic_collision_res collision_function;
 };
