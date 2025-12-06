@@ -32,17 +32,15 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
 
-#include "integration_signitures.h"
 #include "datatypes.h"
 
-#include "integrator.h"
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 
 #include "analytics.h"
-#include "running_sim_signitures.h"
-#include "simulation_description.h"
+
+#include "simulation_generator_functions.hpp"
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void processInput(GLFWwindow *window);
@@ -50,112 +48,7 @@ void processInput(GLFWwindow *window);
 bool display_opengl_shader_compilation_error(unsigned int vertexShader); 
 bool display_opengl_program_compilation_error(unsigned int program);
 
-std::vector<gravitationalBody> generate_thousand_random_bodies() {
-    BoundingBox pos_box {{-1000,-1000,-1000}, {1000,1000,1000}};
-    pos_box.min *= 10.0;
-    pos_box.max *= 10.0;
 
-    BoundingBox vel_box {{-1,-1,-1}, {1,1,1}};
-    vel_box.min *= 0.0;
-    vel_box.max *= 0.0;
-
-    const std::size_t num_points      = 50;
-    uint32_t    seed   = 123456;
-    double      mMin   = 1e11;
-    double      mMax   = 1e12;
-
-    std::vector<gravitationalBody> bodies = generateRandomBodies(pos_box, vel_box, num_points, seed, mMin, mMax);
-
-    std::vector<double> densities = std::vector<double>(1000); // kg m^-3
-    std::fill(densities.begin(), densities.end(), 2000.0);
-    calculate_spherical_radius(bodies, densities);
-
-    for (int i = 0; i < bodies.size(); i++) {
-        bodies[i].restitution = 0.6;
-    }
-
-    return bodies;
-}
-
-// std::vector<gravitationalBody> generate_generator_for_large_small_body_system(size_t seed) {
-//     return [seed](){
-//
-//     }
-// }
-
-std::function<std::vector<gravitationalBody>()> generate_three_body_generator(size_t seed) {
-    return [seed](){
-        BoundingBox pos_box {{-1000,-1000,-1000}, {1000,1000,1000}};
-        pos_box.min *= 1.0;
-        pos_box.max *= 1.0;
-
-        BoundingBox vel_box {{-1,-1,-1}, {1,1,1}};
-        vel_box.min *= 0.01;
-        vel_box.max *= 0.01;
-
-        const std::size_t num_points   = 3;
-        double      mMin   = 1e10;
-        double      mMax   = 1e10;
-
-        std::vector<gravitationalBody> bodies = generateRandomBodies(pos_box, vel_box, num_points, seed, mMin, mMax);
-
-        std::vector<double> densities = {2000.0, 2000.0, 2000.0}; // kg m^-3
-        bodies[0].restitution = 1.0;
-        bodies[1].restitution = 1.0;
-        bodies[2].restitution = 1.0;
-        
-        calculate_spherical_radius(bodies, densities);
-
-        return bodies;
-    };
-}
-
-std::vector<gravitationalBody> earth_moon_bodies() {
-    return {
-        {MASS_EARTH, {0, 0,0},{0, 0,0}},
-        {MASS_MOON, {0,DIST_EARTH_MOON,0},{MOON_EARTH_VELOCITY,0,0}},
-    };
-}
-
-std::vector<gravitationalBody> three_body_example_bodies() {
-    float angle1[2] = {30.0, 20.0 };
-    float angle2[2] = {-20.0, 80.0};
-    float angle3[2] = {60, 110};
-
-    glm::vec3 x(1,0,0), y(0,1,0), z(0,0,1);
-
-    // first chain of rotations
-    glm::mat4 R1_a = glm::rotate(glm::mat4(1.0f), glm::radians(angle1[0]), x);
-    glm::mat4 R1_b = glm::rotate(glm::mat4(1.0f), glm::radians(angle1[1]), y);
-    // second chain
-    glm::mat4 R2_a = glm::rotate(glm::mat4(1.0f), glm::radians(angle2[0]), x);
-    glm::mat4 R2_b = glm::rotate(glm::mat4(1.0f), glm::radians(angle2[1]), y);
-    // third chain
-    glm::mat4 R3_a = glm::rotate(glm::mat4(1.0f), glm::radians(angle3[0]), x);
-    glm::mat4 R3_b = glm::rotate(glm::mat4(1.0f), glm::radians(angle3[1]), y);
-
-    glm::vec4 _r1 = R1_a * R1_b * glm::vec4(z, 0.0f);
-    glm::dvec3 r1 = glm::dvec3(_r1);
-
-    glm::vec3 _r2 = R2_b * R2_a * glm::vec4(z, 0.0);
-    glm::dvec3 r2 = glm::dvec3(_r2);
-
-    glm::vec3 _r3 = R3_b * R3_a * glm::vec4(z, 0.0);
-    glm::dvec3 r3 = glm::dvec3(_r3);
-
-    double large_dist = DIST_EARTH_MOON * 1.0f;
-    double large_speed = MOON_EARTH_VELOCITY*1.0;
-    double large_mass = MASS_MARS* 100.0;
-
-
-    std::vector<gravitationalBody> bodies = {
-        {large_mass * 0.32, large_dist * r1, large_speed * r2},
-        {large_mass * 0.22, large_dist * r2, large_speed * r3},
-        {large_mass * 1.58, large_dist * r3, large_speed * r1}
-    };
-
-    return bodies;
-}
 
 
 namespace gl_window_globals {
@@ -207,78 +100,6 @@ namespace simulation_globals {
     integrator* inte = nullptr;
 }
 
-integrator::integrator(generic_integrator timestep_function, accel_func_signiture acc_func, generic_collision_res col_res, double step_size): 
-    integration_method(timestep_function), 
-    acceleration_function(acc_func),
-    forward_euler(timestep_euler),
-    step_size(step_size),
-    collision_resolution(col_res)
-{
-    if (std::holds_alternative<forward_euler_function_signiture_interface>(integration_method)) 
-    {
-        integrator_name = integrator_names[0];
-    } 
-    else if (std::holds_alternative<RK2_function_signiture>(integration_method)) 
-    {
-        integrator_name = integrator_names[1];
-    } 
-    else if (std::holds_alternative<RK4_function_signiture>(integration_method))
-    {
-        integrator_name = integrator_names[2];
-    } else 
-    {
-        std::cerr << "Error integrator object isnt properly initialised";
-    }
-}
-
-integrator::integrator() {}
-
-void 
-integrator::timestep_system(std::vector<gravitationalBody>& bodies, double deltaT) {
-    // make sure the impulse vector for collisions is zero intialised 
-    if (velocity_change_junk.size() != bodies.size()) {
-        velocity_change_junk.resize(bodies.size());
-        std::fill(velocity_change_junk.begin(), velocity_change_junk.end(), glm::dvec3(0.0,0.0,0.0));
-    }
-
-    if (std::holds_alternative<brute_force_col_res_func_sig>(collision_resolution)) {
-        brute_force_col_res_func_sig col_res = std::get<brute_force_col_res_func_sig>(collision_resolution);
-        col_res(bodies, velocity_change_junk, deltaT);
-
-
-    } else if (std::holds_alternative<collisions_dissabled_func_sig>(collision_resolution)) {}
-
-    for (int i = 0; i < bodies.size(); i++) {
-        bodies[i].velocity += velocity_change_junk[i];
-    }
-
-    if (std::holds_alternative<forward_euler_function_signiture_interface>(integration_method)) 
-    {
-        forward_euler_function_signiture_interface euler_integrator = std::get<forward_euler_function_signiture_interface>(integration_method);
-        euler_integrator(bodies, acceleration_junk_data, deltaT, acceleration_function);
-    } 
-    else if (std::holds_alternative<RK2_function_signiture>(integration_method)) 
-    {
-        RK2_function_signiture rk2_integrator = std::get<RK2_function_signiture>(integration_method);
-        rk2_integrator(bodies, single_body_data, acceleration_junk_data, deltaT, acceleration_function, forward_euler);
-    } 
-    else if (std::holds_alternative<RK4_function_signiture>(integration_method))
-    {
-        RK4_function_signiture rk4_integrator = std::get<RK4_function_signiture>(integration_method);
-        rk4_integrator(bodies, triple_gravitational_body_data, acceleration_quadruple_junk_data, deltaT, acceleration_function);
-    }
-}
-
-double
-integrator::integrate(std::vector<gravitationalBody>& bodies, double start_time, double end_time) {
-    double integration_period = end_time - start_time;
-    size_t amount_steps = std::max(size_t(1), (size_t)(integration_period / step_size)) ;
-    for (int i = 0; i < amount_steps; i++) {
-        start_time += step_size;
-        timestep_system(bodies, step_size);
-    }
-    return start_time;
-}
 
 
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
@@ -714,140 +535,10 @@ int main (int argc, char *argv[]) {
     // three_body_simulation(0.0, days * 24.0 * 3600.0, 5.0*86400.0);
     //
     // three_body_simulation(three_body_example_simulation_description);
-    openglDisplay(three_body_example_simulation_description);
+    // openglDisplay(three_body_example_simulation_description);
+    openglDisplay(thousand_bodies);
     // earth_moon_simulation(earth_moon_simulation_description);
     return 0;
-}
-
-
-
-void timestep_euler(std::vector<gravitationalBody>& bodies, std::vector<glm::dvec3>& acceleration_junk, double step_size, accel_func_signiture acc_func) {
-    acceleration_junk.resize(bodies.size());
-
-    acc_func(bodies, acceleration_junk);
-    std::vector<glm::dvec3> acceleration = std::move(acceleration_junk);
-
-    for (size_t i = 0; i < bodies.size(); i++) {
-        bodies[i].position += bodies[i].velocity * step_size; 
-        bodies[i].velocity += acceleration[i] * step_size;
-    }
-
-    acceleration_junk = std::move(acceleration);
-}
-void timestep_RK2(
-    std::vector<gravitationalBody>& bodies, 
-    std::vector<gravitationalBody>& body_copy, 
-    std::vector<glm::dvec3>& acceleration_junk, 
-    double step_size, 
-    accel_func_signiture acc_func,
-    forward_euler_function_signiture_interface forward_euler) 
-{
-    body_copy.resize(bodies.size());
-    acceleration_junk.resize(bodies.size());
-
-    std::copy(bodies.begin(), bodies.end(), body_copy.begin());
-    forward_euler(body_copy, acceleration_junk, step_size / 2.0l, acc_func);
-
-    acc_func(body_copy, acceleration_junk);
-    std::vector<glm::dvec3> acceleration = std::move(acceleration_junk);
-
-    for (size_t i = 0; i < bodies.size(); i++) {
-        bodies[i].position += body_copy[i].velocity * step_size;
-        bodies[i].velocity += acceleration[i] * step_size;
-    }
-
-    acceleration_junk = std::move(acceleration);
-}
-
-void timestep_RK4(
-    std::vector<gravitationalBody>& bodies,
-    std::array<std::vector<gravitationalBody>, 3>& body_copies,
-    std::array<std::vector<glm::dvec3>, 4>& acceleration_junk,
-    double step_size,
-    accel_func_signiture acc_func
-)
-{
-    for (int i = 0; i < 4; i++) {
-        acceleration_junk[i].resize(bodies.size());
-        if (i != 3) {
-            body_copies[i].resize(bodies.size());
-            std::copy(bodies.begin(), bodies.end(), body_copies[i].begin());
-        }
-    }
-    accel_func_signiture dummy_acceleration_function = [](const std::vector<gravitationalBody>& bodies, std::vector<glm::dvec3>& acceleration) {};
-
-    auto& x2 = body_copies[0];
-    auto& x3 = body_copies[1];
-    auto& x4 = body_copies[2];
-
-    auto& a1 = acceleration_junk[0]; 
-    auto& a2 = acceleration_junk[1];
-    auto& a3 = acceleration_junk[2];
-    auto& a4 = acceleration_junk[3];
-
-    // were actually doing 2 seperate forward euler steps for each stage of the runge kutta
-
-    acc_func(bodies, a1);
-    for (size_t i = 0; i < bodies.size(); i ++) {
-        x2[i].position += bodies[i].velocity * (step_size / 2.0);
-        x2[i].velocity += a1[i] * (step_size / 2.0);
-    }
-    
-    acc_func(x2, a2);
-    for (size_t i = 0; i < bodies.size(); i ++) {
-        x3[i].position += x2[i].velocity * (step_size / 2.0);
-        x3[i].velocity += a2[i] * (step_size / 2.0);
-    }
-
-    acc_func(x3, a3);
-    for (size_t i = 0; i < bodies.size(); i ++) {
-        x4[i].position += x3[i].velocity * (step_size);
-        x4[i].velocity += a3[i] * (step_size);
-    }
-
-    acc_func(x4, a4);
-    for (size_t i = 0; i < bodies.size(); i++) {
-        bodies[i].position += (step_size / 6.0) * (bodies[i].velocity + 2.0 * x2[i].velocity + 2.0 * x3[i].velocity + x4[i].velocity);
-        bodies[i].velocity += (step_size / 6.0) * (a1[i] + 2.0 * a2[i] + 2.0 * a3[i] + a4[i]);
-    }
-}
-
-// if 2 bodies will collide in the next timestep we must change their velocities
-// we check whether they will collide with a number of methods
-// first we calculate whether they are moving towards or away from thier combined center of mass 
-// in their reference frame 
-// then if they are we can solve the linear system of equations to see whether if they continued moving 
-// with their current trajectories what their minimum seperation would be. We can  do this becasue the seperation
-// between the bodies is quadratic wrt time. so we differentiate to find the inflection point.
-// If this check goes through we can just solve the quadratic equation and find where they collide, we choose the smallest positive time 
-// and calculate the difference vector then we apply the momentum conserving collision formulae calculating the new velocity vector 
-// its possible to include an acceleration term and solve a cubic, but for simplicty lets assume gravity is 
-// much weaker than the impulse in a collision
-
-// first off we're going  to write the n^2 algorithm
-// we dont even know the function signiture for the n log n algorithm because we havent decided on a space partitioning scheme
-
-
-void _sum2_vec_dvec3(std::vector<glm::dvec3>& vec1, const std::vector<glm::dvec3>& vec2) {
-    for (size_t i = 0; i < vec1.size(); i++) {
-        vec1[i] += vec2[i]; 
-    }
-}
-
-std::vector<glm::dvec3>& operator+=(std::vector<glm::dvec3>& vec1, const std::vector<glm::dvec3>& vec2) {
-    _sum2_vec_dvec3(vec1, vec2);
-    return vec1;
-}
-
-void _scalarMul2_vec_dvec3(std::vector<glm::dvec3>& vec1, double scalar) {
-    for (size_t i = 0; i < vec1.size(); i++) {
-        vec1[i] *= scalar;
-    }
-}
-
-std::vector<glm::dvec3>& operator*=(std::vector<glm::dvec3>& vec1, double scalar) {
-    _scalarMul2_vec_dvec3(vec1, scalar);
-    return vec1;
 }
 
 
@@ -894,26 +585,26 @@ std::vector<simulationFrame> run_nbody_simulation(
 }
 
 
-std::vector<std::vector<simulationFrame>> three_body_simulation(simulation_description desc) {
-    const size_t num_bodies = 3;
-
-    std::vector<gravitationalBody> bodies = three_body_example_bodies();
-
-    std::vector<simulationFrame> rk2_datalog = run_nbody_simulation(desc.start, desc.end, desc.integrator_step_size_hint, 20, bodies, timestep_RK2);
-    
-    std::vector<simulationFrame> rk4_datalog = run_nbody_simulation(desc.start, desc.end, desc.integrator_step_size_hint, 20, bodies, timestep_RK4);
-
-    std::println("3 body simulation");
-
-    std::println("{} Data Analysis", integrator::integrator_names[1]);
-    analyse_data_log(rk2_datalog);
-
-    std::println("{} Data Analysis", integrator::integrator_names[2]);
-    analyse_data_log(rk4_datalog);
-
-    return {rk2_datalog, rk4_datalog};
-
-}
+// std::vector<std::vector<simulationFrame>> three_body_simulation(simulation_description desc) {
+//     const size_t num_bodies = 3;
+//
+//     std::vector<gravitationalBody> bodies = three_body_example_bodies();
+//
+//     std::vector<simulationFrame> rk2_datalog = run_nbody_simulation(desc.start, desc.end, desc.integrator_step_size_hint, 20, bodies, timestep_RK2);
+//
+//     std::vector<simulationFrame> rk4_datalog = run_nbody_simulation(desc.start, desc.end, desc.integrator_step_size_hint, 20, bodies, timestep_RK4);
+//
+//     std::println("3 body simulation");
+//
+//     std::println("{} Data Analysis", integrator::integrator_names[1]);
+//     analyse_data_log(rk2_datalog);
+//
+//     std::println("{} Data Analysis", integrator::integrator_names[2]);
+//     analyse_data_log(rk4_datalog);
+//
+//     return {rk2_datalog, rk4_datalog};
+//
+// }
 
 
 std::vector<std::vector<simulationFrame>> earth_moon_simulation(size_t integration_steps, size_t samples, double num_seconds) {

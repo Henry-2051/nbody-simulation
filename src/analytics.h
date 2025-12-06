@@ -1,7 +1,6 @@
 #include <array>
 #include <cmath>
 #include <format>
-#include <random>
 
 #include <glm/common.hpp>
 #include <glm/ext/vector_float3.hpp>
@@ -15,182 +14,16 @@
 #include <iostream>
 // #include <Eigen/Eigen>
 #include "datatypes.h"
+#include "preprocessorDefinitions.h"
 
 #pragma once
 
-#define GRAV_G 6.67408e-11
-#define MASS_EARTH 5.9722e24
-#define MASS_MOON 7.348e22
-#define DIST_EARTH_MOON 3.84e8
-#define MOON_ANG_FREQ 2.66e-6
-#define MOON_EARTH_VELOCITY (MOON_ANG_FREQ * DIST_EARTH_MOON)
-#define EARTH_SUN_VELOCITY 2.9886e5
-#define MASS_MARS 6.417e23
-
-void calculate_spherical_radius(std::vector<gravitationalBody>& bodies, const std::vector<double>& densities) {
-    for (size_t i = 0; i < bodies.size(); i++) {
-        bodies[i].radius = std::pow((3/(4.0*M_PI)) * (bodies[i].mass / densities[i]), 1.0/3.0);
-    }
-}
-
-void collisions_dissabled() {}
-
-void
-inverse_cube_collision_approximation(
-    const gravitationalBody& body1, const gravitationalBody& body2, 
-    glm::dvec3& velocity_change1, glm::dvec3& velocity_change2,
-    const glm::dvec3& norm_diff_r0, double diff_r0_magnitude, double step_size) 
-{
-    double beta_constant = - GRAV_G * body1.mass * body2.mass * (body1.radius + body2.radius);
-
-    double force = beta_constant * (1 / std::pow(diff_r0_magnitude, 3) );
-    velocity_change1 -= norm_diff_r0 * step_size * (force / body1.mass);
-    velocity_change2 += norm_diff_r0 * step_size * (force / body2.mass);
-}
-
-bool
-quadratic_collision_detection_and_resolution(const gravitationalBody& body1, const gravitationalBody& body2,
-                                             glm::dvec3& velocity_change1, glm::dvec3& velocity_change2,
-                                             glm::dvec3& diff_r0, glm::dvec3& diff_v, double step_size) 
-{
-    double sphere_rad_sum = body1.radius + body2.radius;
-
-    // quadratic coefficients 
-    double c = glm::dot(diff_r0, diff_r0) - sphere_rad_sum * sphere_rad_sum;
-    double b = 2.0 * glm::dot(diff_r0, diff_v);
-    double a = glm::dot(diff_v, diff_v);
-
-    double determinant = b*b - 4.0*a*c;
-
-    if (determinant <= 0)
-        return false;
-
-    double t1 = (-b + sqrt(determinant)) / (2.0 * a);
-    double t2 = (-b - sqrt(determinant)) / (2.0 * a);
-
-    auto is_time_in_window = [&step_size](double t) {
-        return (t > 0.0 && t <= step_size);
-    };
-
-    double t;
-    if (!is_time_in_window(t1) && !is_time_in_window(t2)) {
-        return false;
-    }
-
-    if (!is_time_in_window(t1)) {
-        t = t2;
-    } else if (!is_time_in_window(t2)) {
-        t = t1;
-    } else {
-        t = std::min(t1, t2);
-    }
-
-    // std::cout << std::format("collision {} \n", bodies[j].position.x);
-
-    // outer_collision_res(t, diff_v, diff_r0, i, j);
-
-    // now we have the time of collision we calculate the difference
-    // this vector pointers from r2 to r1 at the time of collision
-    // the direction point 1 will be going
-
-    glm::dvec3 norm_diff_rt = glm::normalize(diff_r0 + t * diff_v);
-    double rel_normal_velocity_change = -(1.0 + (body1.restitution * body2.restitution)) * glm::dot(diff_v, norm_diff_rt);
-
-    double m1 = body1.mass;
-    double m2 = body2.mass;
-
-    glm::dvec3 delta_v1 = norm_diff_rt * ((m2*rel_normal_velocity_change) / (m1+m2));
-    glm::dvec3 delta_v2 = norm_diff_rt * (-(m1*rel_normal_velocity_change) / (m1+m2));
-
-    velocity_change1 += delta_v1;
-    velocity_change2 += delta_v2;
-    return true;
-}
-
-void brute_force_collision_resolution_velocity_change_calculation(
-    const std::vector<gravitationalBody>& bodies, 
-    std::vector<glm::dvec3>& velocity_change_junk, 
-    double step_size) 
-{
-    velocity_change_junk.resize(bodies.size());
-    std::fill(velocity_change_junk.begin(), velocity_change_junk.end(), glm::dvec3(0.0,0.0,0.0));
-
-    for (size_t i = 0; i < (bodies.size() - 1); i++) {
-        for (size_t j = i + 1; j < bodies.size(); j++) {
-            double sum_mass = bodies[i].mass + bodies[j].mass;
-            glm::dvec3 sum_momentum = bodies[i].velocity * bodies[i].mass + bodies[j].velocity * bodies[j].mass;
-            glm::dvec3 vboost = sum_momentum / (sum_mass);
-            glm::dvec3 m_bar = (bodies[i].position * bodies[i].mass + bodies[j].position * bodies[j].mass) / sum_mass;
-
-            // we transition into the lorentz frame of the collision
-            glm::dvec3 v1 = bodies[i].velocity - vboost;
-            glm::dvec3 v2 = bodies[j].velocity - vboost;
-
-            glm::dvec3 r10 = bodies[i].position - m_bar;
-            glm::dvec3 r20 = bodies[j].position - m_bar;
-
-            glm::dvec3 diff_r0 = r10 - r20;
-            glm::dvec3 diff_v = v1 - v2;
-
-            glm::dvec3 norm_diff_r0 = glm::normalize(diff_r0);
-            double diff_r0_magnitude = std::sqrt(glm::dot(diff_r0, diff_r0));
-
-            double overlap = bodies[i].radius + bodies[j].radius - diff_r0_magnitude;
-
-            inverse_cube_collision_approximation(bodies[i], bodies[j], 
-                         velocity_change_junk[i], velocity_change_junk[j], 
-                         norm_diff_r0, diff_r0_magnitude, step_size);
-            
-            // inverse r^3 repulsion law, irrelevant over large distances but prevents bodies from overlapping at smaller distances
-            // the force is calculated such that it is equal anad opposite to the gravitational attraction when the bodies are just barely
-            // touching 
-            // this also makes our quadratic collisions more accurate becasue when 2 bodies get close now the acceleration approaches zero 
-            
-            // we shouldnt execute the collision code when the bodies are overlapping because 
-            if (overlap > 0.0) {
-                std::cout << std::format("inside!!!{} \n", bodies[j].position.x);
-                continue;
-            }
-
-            // continue of the bodies aren't moving towards each other
-            if (glm::dot(diff_r0, diff_v) >= 0.0) {
-                continue;
-            }
-
-            quadratic_collision_detection_and_resolution(bodies[i], bodies[j],
-                             velocity_change_junk[i], velocity_change_junk[j], 
-                             diff_r0, diff_v, step_size);
-        }
-    }
-}
 
 // A gravitational body.
 // double mass  8 bytes
 // glm::dvec3 position 24 bytes
 // glm::dvec3 velocity 24 bytes
 
-inline void calculate_gravitational_acceleration(const std::vector<gravitationalBody> &bodies, std::vector<glm::dvec3>& acceleration) {
-    acceleration.resize(bodies.size());
-    std::fill(acceleration.begin(), acceleration.end(), glm::dvec3(0.0,0.0,0.0));
-
-    double grav_const = GRAV_G;
-
-    for (size_t i = 0; i < bodies.size()- 1; i++) {
-        for (size_t j = i + 1; j < bodies.size(); j++) {
-            glm::dvec3 pi = bodies[i].position, pj = bodies[j].position;
-            double mi = bodies[i].mass, mj = bodies[j].mass;
-            // vector pointing from j to i, the direction will the the same as the force i exertes on j
-            glm::dvec3 dr = pi - pj;
-            double dr_squared_magnitude = glm::dot(dr, dr);
-            double inv_seperation_magnitude = 1.0 / std::sqrt(dr_squared_magnitude);
-            glm::dvec3 force_on_j_direction = dr * inv_seperation_magnitude; // this is the normalised vector pointing from j to i
-            glm::dvec3 force_on_i_direction= -force_on_j_direction;
-            // acceleration of body 1 = G*M_2 / r^3
-            acceleration[j] += (grav_const * mi / dr_squared_magnitude) * force_on_j_direction;
-            acceleration[i] += (grav_const * mj / dr_squared_magnitude) * force_on_i_direction;
-        }
-    }
-}
 inline std::ostream& operator<<(std::ostream& os, glm::dvec3 const& v)
 {
     return os << '(' << v.x << ", " << v.y << ", " << v.z << ')';
@@ -200,57 +33,12 @@ inline std::ostream& operator<<(std::ostream& os, glm::dvec3 const& v)
 
 
 
-/// generate N bodies with
-///  - position uniformly in [box.min, box.max]
-///  - velocity    uniformly in [box.min, box.max]
-///  - mass        uniformly in [massMin, massMax]
-inline std::vector<gravitationalBody>
-generateRandomBodies(const BoundingBox &pos_box,
-                     const BoundingBox &vel_box,
-                     std::size_t         N,
-                     uint32_t            seed,
-                     double              massMin   = 1.0,
-                     double              massMax   = 10.0)
-{
-    // rng
-    std::mt19937_64 rng(seed);
-
-    // position distributions
-    std::uniform_real_distribution<double> distX(pos_box.min.x, pos_box.max.x);
-    std::uniform_real_distribution<double> distY(pos_box.min.y, pos_box.max.y);
-    std::uniform_real_distribution<double> distZ(pos_box.min.z, pos_box.max.z);
-
-    // velocity uses same box
-    std::uniform_real_distribution<double> velX(vel_box.min.x, vel_box.max.x);
-    std::uniform_real_distribution<double> velY(vel_box.min.y, vel_box.max.y);
-    std::uniform_real_distribution<double> velZ(vel_box.min.z, vel_box.max.z);
-
-    // mass distribution
-    std::uniform_real_distribution<double> massDist(massMin, massMax);
-
-    std::vector<gravitationalBody> bodies;
-    bodies.reserve(N);
-
-    for (std::size_t i = 0; i < N; ++i) {
-        gravitationalBody b;
-        b.position = glm::dvec3(distX(rng),
-                                distY(rng),
-                                distZ(rng));
-        b.velocity = glm::dvec3(velX(rng),
-                                velY(rng),
-                                velZ(rng));
-        b.mass     = massDist(rng);
-        bodies.push_back(b);
-    }
-
-    return bodies;
-}
 
 inline std::string get_str_glm_vec3(glm::dvec3 vec, std::string_view name) {
     return std::format("{}: ({}, {}, {})", name, vec.x, vec.y, vec.z);
 }
 
-void just_print_glm_vec3(const glm::vec3& vec) {
+inline void just_print_glm_vec3(const glm::vec3& vec) {
     std::println("({}, {}, {})", vec.x, vec.y, vec.z);
 }
 

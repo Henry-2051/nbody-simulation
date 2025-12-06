@@ -8,6 +8,7 @@
 #include <glm/glm.hpp>
 #include "datatypes.h"    // from src/b.hpp
 #include "analytics.h"        // from src/body.hpp
+#include "simulation_generator_functions.hpp"
 
 // 1) Extract the positions out of your bodies
 

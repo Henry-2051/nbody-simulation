@@ -1,10 +1,34 @@
-#include "integration_signitures.h"
-#include "running_sim_signitures.h"
-#include "datatypes.h"
-#include <iostream>
+#include <glm/glm.hpp>
 #include <string>
+#include "integration_schemes.h"
+#include <variant>
 
-#pragma once
+
+//////////////////////////////////////
+/// Integrator interface signature ///
+
+using generic_integrator = std::variant<forward_euler_function_signiture_interface, RK2_function_signiture, RK4_function_signiture>;
+using generic_collision_res = std::variant<brute_force_col_res_func_sig, collisions_dissabled_func_sig>;
+
+
+std::vector<glm::dvec3>& operator+=(std::vector<glm::dvec3>& vec1, const std::vector<glm::dvec3>& vec2);
+std::vector<glm::dvec3>& operator*=(std::vector<glm::dvec3>& vec1, double scalar);
+
+
+/**
+ * @brief A polymorphic N-body integrator selecting among Euler, RK2, and RK4.
+ *
+ * This class wraps multiple time‐integration schemes for gravitationalBody systems.
+ * The user provides:
+ *   - a variant <generic_integrator> indicating which integrator to use,
+ *   - an acceleration function <acceleration_function>,
+ *   - a time‐step size <step_size>.
+ *
+ * Internally it allocates and reuses scratch buffers for intermediate states
+ * and acceleration arrays appropriate to the chosen method.  Calling `integrate(bodies)`
+ * dispatches to the selected scheme.
+ */
+
 
 struct integrator 
 {
