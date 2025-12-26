@@ -1,32 +1,17 @@
 #include "integrator.h"
+#include "datatypes.h"
+#include <format>
 #include <iostream>
+#include <stdexcept>
 
 
-integrator::integrator(generic_integrator timestep_function, accel_func_signiture acc_func, generic_collision_res col_res, double step_size): 
-    integration_method(timestep_function), 
+integrator::integrator(Integrator_Type itt, Col_Resolution_Type col_res, accel_func_signiture acc_func, double step_size): 
+    integration_type(itt),
+    collision_resolution_type(col_res),
     acceleration_function(acc_func),
-    forward_euler(timestep_euler),
-    step_size(step_size),
-    collision_resolution(col_res)
+    step_size(step_size)
 {
-    if (std::holds_alternative<forward_euler_function_signiture_interface>(integration_method)) 
-    {
-        integrator_name = integrator_names[0];
-    } 
-    else if (std::holds_alternative<RK2_function_signiture>(integration_method)) 
-    {
-        integrator_name = integrator_names[1];
-    } 
-    else if (std::holds_alternative<RK4_function_signiture>(integration_method))
-    {
-        integrator_name = integrator_names[2];
-    } else 
-    {
-        std::cerr << "Error integrator object isnt properly initialised";
-    }
 }
-
-integrator::integrator() {}
 
 void 
 integrator::timestep_system(std::vector<gravitationalBody>& bodies, double deltaT) {
@@ -36,29 +21,36 @@ integrator::timestep_system(std::vector<gravitationalBody>& bodies, double delta
         std::fill(velocity_change_junk.begin(), velocity_change_junk.end(), glm::dvec3(0.0,0.0,0.0));
     }
 
-    if (std::holds_alternative<brute_force_col_res_func_sig>(collision_resolution)) {
-        brute_force_col_res_func_sig col_res = std::get<brute_force_col_res_func_sig>(collision_resolution);
-        col_res(bodies, velocity_change_junk, deltaT);
-    } else if (std::holds_alternative<collisions_dissabled_func_sig>(collision_resolution)) {}
+    switch (collision_resolution_type) {
+    case Col_Resolution_Type::BruteForce:
+        brute_force_collision_resolution_velocity_change_calculation(bodies, velocity_change_junk, deltaT);
+        break;
+    case Col_Resolution_Type::Dissabled:
+        break;
+    }
 
     for (int i = 0; i < bodies.size(); i++) {
         bodies[i].velocity += velocity_change_junk[i];
     }
 
-    if (std::holds_alternative<forward_euler_function_signiture_interface>(integration_method)) 
-    {
-        forward_euler_function_signiture_interface euler_integrator = std::get<forward_euler_function_signiture_interface>(integration_method);
-        euler_integrator(bodies, acceleration_junk_data, deltaT, acceleration_function);
-    } 
-    else if (std::holds_alternative<RK2_function_signiture>(integration_method)) 
-    {
-        RK2_function_signiture rk2_integrator = std::get<RK2_function_signiture>(integration_method);
-        rk2_integrator(bodies, single_body_data, acceleration_junk_data, deltaT, acceleration_function, forward_euler);
-    } 
-    else if (std::holds_alternative<RK4_function_signiture>(integration_method))
-    {
-        RK4_function_signiture rk4_integrator = std::get<RK4_function_signiture>(integration_method);
-        rk4_integrator(bodies, triple_gravitational_body_data, acceleration_quadruple_junk_data, deltaT, acceleration_function);
+    switch (integration_type) {
+    case Integrator_Type::ForwardEuler:
+        timestep_euler(bodies, acceleration_junk_data, deltaT, acceleration_function);
+        break;
+    case Integrator_Type::SymplecticEuler:
+        timestep_symplectic_euler(bodies, acceleration_junk_data, deltaT, acceleration_function);
+        break;
+    case Integrator_Type::RungeKutta2:
+        timestep_RK2(bodies, single_body_data, acceleration_junk_data, deltaT, acceleration_function);
+        break;
+    case Integrator_Type::ImplicitMidpoint:
+        timestep_implicit_midpoint(bodies, single_body_data, acceleration_junk_data, deltaT, acceleration_function);
+        break;
+    case Integrator_Type::RungeKutta4:
+        timestep_RK4(bodies, triple_gravitational_body_data, acceleration_quadruple_junk_data, deltaT, acceleration_function);
+        break;
+    default:
+        throw std::runtime_error(std::format("Invalid state, Integrator_Type has unhandled value (integrator::timestep_system in integrator.cpp) of {}", to_string(integration_type)));
     }
 }
 

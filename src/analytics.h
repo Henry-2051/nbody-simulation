@@ -87,6 +87,8 @@ double get_max_dimension(std::vector<gravitationalBody> bodies) {
 
     return max_dim;
 }
+
+
 double calculate_kinetic_energy(std::vector<gravitationalBody>& bodies) {
     double ke {0};
     for (size_t i = 0; i < bodies.size(); i++) {

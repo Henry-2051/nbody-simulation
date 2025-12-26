@@ -1,6 +1,8 @@
 #include "integration_schemes.h"
 #include "preprocessorDefinitions.h"
+#include <algorithm>
 #include <glm/fwd.hpp>
+#include <iterator>
 
 void _sum2_vec_dvec3(std::vector<glm::dvec3>& vec1, const std::vector<glm::dvec3>& vec2) {
     for (size_t i = 0; i < vec1.size(); i++) {
@@ -57,9 +59,11 @@ struct barnesHuttNode{
 
 using bh8Tree = std::vector<barnesHuttNode>;
 
+
 void regenerate_barnes_hutt_tree(const std::vector<gravitationalBody> &bodies, bh8Tree &bhtree) {
     bhtree.clear();
     bhtree.push_back({0.0, {0.0, 0.0, 0.0}});
+    // first we calculate the bounding box for all nodes
 
 
     for (int i = 0; i < bodies.size(); i++){
@@ -68,16 +72,13 @@ void regenerate_barnes_hutt_tree(const std::vector<gravitationalBody> &bodies, b
         while (!found_leaf) {
             double mNode = bhtree[current_node].mass;
             glm::dvec3 pNode = bhtree[current_node].position;
-            pNode = (pNode * mNode + bodies[i].position * bodies[i].mass) / (mNode + bodies[i].mass);
-            mNode += bodies[i].mass;
+            bhtree[current_node].position = (pNode * mNode + bodies[i].position * bodies[i].mass) / (mNode + bodies[i].mass);
+            bhtree[current_node].mass += bodies[i].mass;
 
-            bhtree[current_node].position = pNode;
-            bhtree[current_node].mass = mNode;
             bhtree[current_node].bodies_contained ++;
 
             // calcualte the new nodes octant
-
-
+                       
         }
     }
 }
@@ -104,14 +105,18 @@ void timestep_RK2(
     std::vector<gravitationalBody>& body_copy, 
     std::vector<glm::dvec3>& acceleration_junk, 
     double step_size, 
-    accel_func_signiture acc_func,
-    forward_euler_function_signiture_interface forward_euler) 
+    accel_func_signiture acc_func) 
 {
     body_copy.resize(bodies.size());
     acceleration_junk.resize(bodies.size());
 
     std::copy(bodies.begin(), bodies.end(), body_copy.begin());
-    forward_euler(body_copy, acceleration_junk, step_size / 2.0l, acc_func);
+
+    acc_func(bodies, acceleration_junk);
+    for (auto i = 0; i < std::ssize(bodies); ++i) {
+        body_copy[i].position += step_size * 0.5 * body_copy[i].velocity;
+        body_copy[i].velocity += step_size * 0.5 * acceleration_junk[i];
+    }
 
     acc_func(body_copy, acceleration_junk);
     std::vector<glm::dvec3> acceleration = std::move(acceleration_junk);
@@ -138,8 +143,6 @@ void timestep_RK4(
             std::copy(bodies.begin(), bodies.end(), body_copies[i].begin());
         }
     }
-    accel_func_signiture dummy_acceleration_function = [](const std::vector<gravitationalBody>& bodies, std::vector<glm::dvec3>& acceleration) {};
-
     auto& x2 = body_copies[0];
     auto& x3 = body_copies[1];
     auto& x4 = body_copies[2];
@@ -153,14 +156,14 @@ void timestep_RK4(
 
     acc_func(bodies, a1);
     for (size_t i = 0; i < bodies.size(); i ++) {
-        x2[i].position += bodies[i].velocity * (step_size / 2.0);
-        x2[i].velocity += a1[i] * (step_size / 2.0);
+        x2[i].position += bodies[i].velocity * (step_size * 0.5);
+        x2[i].velocity += a1[i] * (step_size * 0.5);
     }
     
     acc_func(x2, a2);
     for (size_t i = 0; i < bodies.size(); i ++) {
-        x3[i].position += x2[i].velocity * (step_size / 2.0);
-        x3[i].velocity += a2[i] * (step_size / 2.0);
+        x3[i].position += x2[i].velocity * (step_size * 0.5);
+        x3[i].velocity += a2[i] * (step_size * 0.5);
     }
 
     acc_func(x3, a3);
@@ -176,6 +179,48 @@ void timestep_RK4(
     }
 }
 
+void timestep_symplectic_euler(
+    std::vector<gravitationalBody>& bodies, std::vector<glm::dvec3>& acceleration_junk,
+    double step_size, accel_func_signiture acc_func
+) {
+    acceleration_junk.resize(bodies.size());
+
+    acc_func(bodies, acceleration_junk);
+    for (int i{0}; i < bodies.size(); i++) {
+        bodies[i].velocity += step_size * acceleration_junk[i];
+    }
+
+    for (auto &b : bodies) {
+        b.position += step_size * b.velocity;
+    }
+}
+
+void timestep_implicit_midpoint(
+    std::vector<gravitationalBody>& bodies, std::vector<gravitationalBody>& body_copy,
+    std::vector<glm::dvec3>& acceleration_junk, double step_size, accel_func_signiture acc_func
+) {
+    acceleration_junk.resize(bodies.size());
+    body_copy.resize(bodies.size());
+    std::copy(bodies.begin(), bodies.end(), body_copy.begin());
+
+    acc_func(bodies, acceleration_junk);
+    for (int i{0}; i < bodies.size(); i++) {
+        body_copy[i].velocity += 0.5 * step_size * acceleration_junk[i];
+    }
+    for (auto &b : body_copy) {
+        b.position += step_size * b.velocity;
+    }
+
+    acc_func(body_copy, acceleration_junk);
+    for (int i {0}; i < bodies.size(); i++) {
+        bodies[i].velocity += step_size * acceleration_junk[i];        
+    }
+
+    for (auto &b : bodies) {
+        b.position += step_size * b.velocity;
+    }
+}
+
 // COLLISION RESOLUTION CODE
 
 void calculate_spherical_radius(std::vector<gravitationalBody>& bodies, const std::vector<double>& densities) {
@@ -184,7 +229,6 @@ void calculate_spherical_radius(std::vector<gravitationalBody>& bodies, const st
     }
 }
 
-void collisions_dissabled() {}
 
 void
 inverse_cube_collision_approximation(
@@ -258,10 +302,10 @@ quadratic_collision_detection_and_resolution(const gravitationalBody& body1, con
     return true;
 }
 
-void brute_force_collision_resolution_velocity_change_calculation(
-    const std::vector<gravitationalBody>& bodies, 
-    std::vector<glm::dvec3>& velocity_change_junk, 
-    double step_size) 
+void collisions_dissabled() {}
+
+void brute_force_collision_resolution_velocity_change_calculation(const std::vector<gravitationalBody>& bodies, 
+    std::vector<glm::dvec3>& velocity_change_junk, double step_size) 
 {
     velocity_change_junk.resize(bodies.size());
     std::fill(velocity_change_junk.begin(), velocity_change_junk.end(), glm::dvec3(0.0,0.0,0.0));

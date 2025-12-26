@@ -1,5 +1,4 @@
 #pragma once
-
 #include <glm/glm.hpp>
 #include <functional>
 #include "integrator.h"
@@ -21,27 +20,10 @@ struct simulation_description {
     double start, end;
     double integrator_step_size_hint;
     double simulation_step_size;
-    generic_integrator integrator;
+    Integrator_Type integrator_type;
     accel_func_signiture acceleration_function;
-    generic_collision_res collision_function;
+    Col_Resolution_Type collision_resolution_type;
 };
-
-std::vector<simulationFrame> __run_nbody_simulation(
-    size_t integration_steps, 
-    size_t samples, 
-    size_t length_simulation, 
-    std::vector<gravitationalBody> bodies, 
-    generic_integrator integration_method
-); 
-
-std::vector<simulationFrame> run_nbody_simulation(
-    double sim_start,
-    double sim_end,
-    double step_size,
-    size_t samples,
-    std::vector<gravitationalBody> bodies,
-    generic_integrator integration_method
-);
 
 std::vector<std::vector<simulationFrame>> three_body_simulation(simulation_description desc);
 

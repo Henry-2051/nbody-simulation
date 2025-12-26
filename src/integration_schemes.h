@@ -1,23 +1,50 @@
+#pragma once
 #include <glm/glm.hpp>
+#include <string_view>
 #include "primitiveDatatypes.h"
 
-using accel_func_signiture = 
-std::function<void 
-    (const std::vector<gravitationalBody>&, std::vector<glm::dvec3>&)>;
+using accel_func_signiture = std::function<void (const std::vector<gravitationalBody>&, std::vector<glm::dvec3>&)>;
 
-using forward_euler_function_signiture_interface = std::function<void
-    (std::vector<gravitationalBody>&,
-     std::vector<glm::dvec3>&,
-     double,
-     accel_func_signiture
- )>;
-
-using RK2_function_signiture = std::function<void(std::vector<gravitationalBody>&, std::vector<gravitationalBody>&, std::vector<glm::dvec3>&, double, accel_func_signiture, forward_euler_function_signiture_interface)>;
-
-using RK4_function_signiture = std::function<void(std::vector<gravitationalBody>&, std::array<std::vector<gravitationalBody>, 3>&, std::array<std::vector<glm::dvec3>, 4>&, double, accel_func_signiture)>;
+using first_order = std::function<void(std::vector<gravitationalBody>&, std::vector<glm::dvec3>&, double, accel_func_signiture)>;
+using second_order = std::function<void(std::vector<gravitationalBody>&, std::vector<gravitationalBody>&, std::vector<glm::dvec3>&, double, accel_func_signiture)>;
+using fourth_order = std::function<void(std::vector<gravitationalBody>&, std::array<std::vector<gravitationalBody>, 3>&, std::array<std::vector<glm::dvec3>, 4>&, double, accel_func_signiture)>;
 
 using brute_force_col_res_func_sig = std::function<void(const std::vector<gravitationalBody>&, std::vector<glm::dvec3>&, double)>;
 using collisions_dissabled_func_sig = std::function<void()>;
+
+enum class Integrator_Type
+{
+    ForwardEuler,
+    SymplecticEuler,
+    RungeKutta2,
+    ImplicitMidpoint,
+    RungeKutta4
+};
+
+enum class Col_Resolution_Type
+{
+    Dissabled,
+    BruteForce
+};
+
+constexpr std::string_view to_string(Integrator_Type t) noexcept {
+    switch (t) {
+        case Integrator_Type::ForwardEuler:      return "ForwardEuler";
+        case Integrator_Type::SymplecticEuler:   return "SymplecticEuler";
+        case Integrator_Type::RungeKutta2:       return "RungeKutta2";
+        case Integrator_Type::ImplicitMidpoint:  return "ImplicitMidpoint";
+        case Integrator_Type::RungeKutta4:       return "RungeKutta4";
+    }
+    return "Unknown(Integrator_Type)";
+}
+
+constexpr std::string_view to_string(Col_Resolution_Type t) noexcept {
+    switch (t) {
+        case Col_Resolution_Type::Dissabled:  return "Dissabled";
+        case Col_Resolution_Type::BruteForce: return "BruteForce";
+    }
+    return "Unknown(Col_Resolution_Type)";
+}
 
 void
 inverse_cube_collision_approximation(
@@ -99,8 +126,7 @@ void timestep_RK2(
     std::vector<gravitationalBody>& body_copy, 
     std::vector<glm::dvec3>& acceleration_junk, 
     double step_size, 
-    accel_func_signiture acc_func,
-    forward_euler_function_signiture_interface forward_euler);
+    accel_func_signiture acc_func);
 
 void _sum2_vec_dvec3(std::vector<glm::dvec3>& vec1, const std::vector<glm::dvec3>& vec2);
 void _scalarMul2_vec_dvec3(std::vector<glm::dvec3>& vec1, double scalar);
@@ -133,6 +159,16 @@ void timestep_RK4(
     std::array<std::vector<glm::dvec3>, 4>& acceleration_junk,
     double step_size,
     accel_func_signiture acc_func
+);
+
+void timestep_symplectic_euler(
+    std::vector<gravitationalBody>& bodies, std::vector<glm::dvec3>& acceleration_junk,
+    double step_size, accel_func_signiture acc_func
+);
+
+void timestep_implicit_midpoint(
+    std::vector<gravitationalBody>& bodies, std::vector<gravitationalBody>& body_copy,
+    std::vector<glm::dvec3>& acceleration_junk, double step_size, accel_func_signiture acc_func
 );
 
 // COLLISIONS

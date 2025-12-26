@@ -343,7 +343,7 @@ int openglDisplay(simulation_description sim_desc) {
     // good practice to free the resource before assigning a new resource, preventing a memory leak
     
     delete gs::inte;
-    gs::inte = new integrator(sim_desc.integrator, sim_desc.acceleration_function, sim_desc.collision_function, sim_desc.integrator_step_size_hint);
+    gs::inte = new integrator(sim_desc.integrator_type, sim_desc.collision_resolution_type, sim_desc.acceleration_function, sim_desc.integrator_step_size_hint);
     
     // auto last_frame = std::chrono::high_resolution_clock::now();
     double current_simulation_time = sim_desc.start;
@@ -499,9 +499,9 @@ int main (int argc, char *argv[]) {
         0.0, 365.0 * 24.0 * 3600.0,
         0.5,
         600,
-        timestep_RK4,
+        Integrator_Type::RungeKutta4,
         calculate_gravitational_acceleration,
-        brute_force_collision_resolution_velocity_change_calculation,
+        Col_Resolution_Type::BruteForce,
     };
 
     double earth_moon_num_seconds = 356.25 * 20.0 * 24.0 * 3600.0;
@@ -512,9 +512,9 @@ int main (int argc, char *argv[]) {
         0.0, earth_moon_num_seconds,
         earth_moon_step_size,
         earth_moon_step_size,
-        timestep_RK4,
+        Integrator_Type::RungeKutta4,
         calculate_gravitational_acceleration,
-        collisions_dissabled
+        Col_Resolution_Type::Dissabled
     };
 
     simulation_description thousand_bodies {
@@ -522,9 +522,9 @@ int main (int argc, char *argv[]) {
         0.0, 365.25 * 24.0 * 3600.0,
         50,
         50,
-        timestep_RK4,
+        Integrator_Type::RungeKutta4,
         calculate_gravitational_acceleration,
-        brute_force_collision_resolution_velocity_change_calculation
+       Col_Resolution_Type::BruteForce 
     };
 
     simulation_description two_body_collision {
@@ -541,47 +541,35 @@ int main (int argc, char *argv[]) {
     return 0;
 }
 
-
-std::vector<simulationFrame> __run_nbody_simulation(
-    size_t integration_steps, 
-    size_t samples, 
-    size_t length_simulation, 
-    std::vector<gravitationalBody> bodies, 
-    generic_integrator integration_method) 
-{
-    size_t sampling_divisor = integration_steps / samples;
-    double a = 0, b = (length_simulation);
-    double step_size = ((double)(b - a)) / ((double)integration_steps);
-
-    integrator this_integrator(integration_method, calculate_gravitational_acceleration, collisions_dissabled, step_size);
-
-    std::vector<simulationFrame> datalog;
-    
-
-    for (size_t s = 0; s < integration_steps; s++) {
-        double target_time = a + step_size;
-        a = this_integrator.integrate(bodies, a, target_time);
-
-        if (s % sampling_divisor == 0) {
-            double currentTime = a + s * step_size;
-            datalog.push_back({bodies, currentTime});
-        }
-    }
-    return datalog;
-}
-
 std::vector<simulationFrame> run_nbody_simulation(
     double sim_start,
     double sim_end,
     double step_size_hint,
     size_t samples,
     std::vector<gravitationalBody> bodies,
-    generic_integrator integration_method)
-{
+    Integrator_Type integrator_type,
+    Col_Resolution_Type collision_resolution_type
+) {
     size_t num_integration_steps = (size_t)((sim_end - sim_start) / step_size_hint);
-    integrator this_integrator = integrator(integration_method, calculate_gravitational_acceleration, collisions_dissabled, step_size_hint);
+    integrator this_integrator(integrator_type, collision_resolution_type, calculate_gravitational_acceleration, step_size_hint);
 
-    return __run_nbody_simulation(num_integration_steps, samples, sim_end - sim_start, bodies, integration_method);
+    size_t sampling_divisor = num_integration_steps/ samples;
+    double step_size = (sim_end - sim_start) / ((double)num_integration_steps);
+
+    std::vector<simulationFrame> datalog;
+
+    double current_time = sim_start;
+
+    for (size_t s = 0; s < num_integration_steps; s++) {
+        double target_time = sim_start + step_size;
+        current_time = this_integrator.integrate(bodies, current_time, target_time);
+
+        if (s % sampling_divisor == 0) {
+            datalog.push_back({bodies, current_time});
+        }
+    }
+
+    return datalog;
 }
 
 
@@ -618,13 +606,13 @@ std::vector<std::vector<simulationFrame>> earth_moon_simulation(size_t integrati
     double step_size = (end - start) / ((double)(integration_steps));
 
     std::vector<simulationFrame> forward_euler_datalog = 
-        run_nbody_simulation(start, end, step_size, samples, bodies, timestep_euler);
+        run_nbody_simulation(start, end, step_size, samples, bodies, Integrator_Type::ForwardEuler, Col_Resolution_Type::Dissabled);
 
     std::vector<simulationFrame> rk2_datalog= 
-        run_nbody_simulation(start, end, step_size, samples, bodies, timestep_RK2);
+        run_nbody_simulation(start, end, step_size, samples, bodies, Integrator_Type::RungeKutta2, Col_Resolution_Type::Dissabled);
     
     std::vector<simulationFrame> rk4_datalog= 
-        run_nbody_simulation(start, end, step_size, samples, bodies, timestep_RK4);
+        run_nbody_simulation(start, end, step_size, samples, bodies, Integrator_Type::RungeKutta4, Col_Resolution_Type::Dissabled);
     
     std::println("2 body Earth moon simulation\n");
     std::println("{} Data Analysis", integrator::integrator_names[0]);

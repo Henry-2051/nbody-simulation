@@ -1,14 +1,14 @@
+#pragma once  
 #include <glm/glm.hpp>
 #include <string>
 #include "integration_schemes.h"
 #include <variant>
 
+//////////////////////////////////
+///integrator enum
 
 //////////////////////////////////////
 /// Integrator interface signature ///
-
-using generic_integrator = std::variant<forward_euler_function_signiture_interface, RK2_function_signiture, RK4_function_signiture>;
-using generic_collision_res = std::variant<brute_force_col_res_func_sig, collisions_dissabled_func_sig>;
 
 
 std::vector<glm::dvec3>& operator+=(std::vector<glm::dvec3>& vec1, const std::vector<glm::dvec3>& vec2);
@@ -32,10 +32,9 @@ std::vector<glm::dvec3>& operator*=(std::vector<glm::dvec3>& vec1, double scalar
 
 struct integrator 
 {
-    const generic_integrator integration_method;
+    const Integrator_Type integration_type;
+    const Col_Resolution_Type collision_resolution_type;
     const accel_func_signiture acceleration_function;
-    const forward_euler_function_signiture_interface forward_euler;
-    const generic_collision_res collision_resolution;
 
     std::vector<gravitationalBody> single_body_data;
     std::array<std::vector<gravitationalBody>, 3> triple_gravitational_body_data;
@@ -45,7 +44,8 @@ struct integrator
 
     std::vector<glm::dvec3> velocity_change_junk;
 
-    inline static std::vector<std::string> integrator_names {"Forward Euler", "Runge-Kutta 2nd Order", "Runge-Kutta 4th Order"};
+    inline static std::vector<std::string> integrator_names {"Forward Euler", "Runge-Kutta 2nd Order", "Runge-Kutta 4th Order", 
+        "midpoint (symplectic) 2nd order", "symplectic euler"};
 
     inline static std::vector<std::string> collision_res_names {"Brute force"};
 
@@ -53,7 +53,7 @@ struct integrator
 
     double step_size;
 
-    integrator(generic_integrator timestep_function, accel_func_signiture acc_func, generic_collision_res col_res, double step_size);
+    integrator(Integrator_Type iit, Col_Resolution_Type c_res, accel_func_signiture acc_func, double step_size);
     integrator();
 
     void timestep_system(std::vector<gravitationalBody>& bodies, double step_size);

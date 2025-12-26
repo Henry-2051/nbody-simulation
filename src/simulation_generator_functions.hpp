@@ -9,10 +9,10 @@ inline std::vector<gravitationalBody> generate_thousand_random_bodies() {
     pos_box.max *= 150.0;
 
     BoundingBox vel_box {{0,0,0}, {1,1,1}};
-    vel_box.min *= 1.0;
-    vel_box.max *= 10.0;
+    vel_box.min *= 0.01;
+    vel_box.max *= 0.1;
 
-    const std::size_t num_points      = 400;
+    const std::size_t num_points      = 600;
     uint32_t    seed   = 123456;    
     double      mMin   = 1e10;
     double      mMax   = 1e11;
