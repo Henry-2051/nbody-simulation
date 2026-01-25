@@ -16,27 +16,6 @@ find_package(glfw3 3.3  REQUIRED)   # provides glfw::glfw
 find_package(Catch2 3    REQUIRED)   # provides Catch2::Catch2WithMain
 find_package(imgui  REQUIRED)
 
-# set(IMGUI_SRC_DIR "${CMAKE_SOURCE_DIR}/src/imgui")
-#
-# add_library(imgui_s STATIC
-#     ${IMGUI_SRC_DIR}/imgui.cpp
-#     ${IMGUI_SRC_DIR}/imgui_draw.cpp
-#     ${IMGUI_SRC_DIR}/imgui_tables.cpp
-#     ${IMGUI_SRC_DIR}/imgui_widgets.cpp
-#     ${IMGUI_SRC_DIR}/backends/imgui_impl_glfw.cpp
-#     ${IMGUI_SRC_DIR}/backends/imgui_impl_opengl3.cpp
-# )
-#
-# target_include_directories(imgui_s PUBLIC
-#     ${IMGUI_SRC_DIR} 
-#     ${IMGUI_SRC_DIR}/backends
-# )
-#
-# target_link_libraries(imgui_s PUBLIC
-#     GL 
-#     GLEW
-#     glfw
-# )
 
 # 4) Collect your application sources
 file(GLOB_RECURSE APP_SOURCES
