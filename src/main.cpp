@@ -27,6 +27,9 @@
 #include <variant>
 #include <chrono>
 
+#include <GL/glew.h>
+#include <GLFW/glfw3.h>
+
 #include "datatypes.h"
 #include "analytics.h"
 

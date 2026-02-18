@@ -1,5 +1,6 @@
 #include "datatypes.h"
 #include "primitiveDatatypes.h"
+#include <glm/fwd.hpp>
 #include <memory>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
@@ -9,6 +10,11 @@
 #include <imgui_impl_opengl3.h>
 
 #pragma once
+
+enum class RenderState {
+    pointcloud,
+    spheremesh
+};
 
 struct GLWindowGlobals {
     int width  = 800;
@@ -58,6 +64,13 @@ struct GLWindowGlobals {
     fd_shape uv_sphere;
 
     bool draw_spheres = true;
+
+    GLuint pointcloud_shader_program, spheremesh_shader_program;
+
+    RenderState asteroid_draw_type = RenderState::spheremesh;
+    bool asteroid_model_yes = true;
+    glm::vec3 sphere_color {0.8, 0.2, 0.2};
+    glm::vec3 line_color {0.2, 0.2, 0.8};
 };
 
 struct SimulationGLobals {

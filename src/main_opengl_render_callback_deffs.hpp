@@ -3,7 +3,6 @@
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
-
 #include <GL/glew.h>
 #include "main_opengl_render_structs.hpp"
 
@@ -20,7 +19,7 @@
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void processInput(GLFWwindow *window);
 bool display_opengl_shader_compilation_error(unsigned int vertexShader); 
-bool display_opengl_program_compilation_error(unsigned int program);
+bool display_opengl_program_compilation_errordisplay_opengl_program_compilation_error(unsigned int program);
 
 
 inline void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
@@ -83,6 +82,34 @@ inline void processInput(GLFWwindow *window)
     } 
     g->middle_button_state_last_frame = middle_button_state;
 }
+
+inline bool display_opengl_shader_compilation_error(unsigned int thisShader) {
+    int sucess;
+    char infoLog[512];
+    glGetShaderiv(thisShader, GL_COMPILE_STATUS, &sucess);
+
+    if (!sucess)
+    {
+        glGetShaderInfoLog(thisShader, 512, NULL, infoLog);
+        std::cout << "ERROR::SHADER::COMPILATION_FAILED\n" << infoLog << std::endl;
+        return true;
+    }
+    std::cout << "SHADER::COMPILATION::SUCESS\n";
+    return false;
+}
+
+inline bool display_opengl_program_compilation_error(unsigned int program) {
+    int sucess;
+    char infoLog[512];
+    glGetProgramiv(program, GL_LINK_STATUS, &sucess);
+    if (!sucess) {
+        glGetProgramInfoLog(program, 512, NULL, infoLog);
+        std::cout << "ERROR::PROGRAM::COMPILATION_FAILED\n" << infoLog << std::endl;
+        return true;
+    }
+    std::cout << "SHADER_PROGRAM::COMPILATION::SUCESS\n";
+    return false;
+};
 
 inline void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
