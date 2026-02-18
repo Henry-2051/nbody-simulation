@@ -77,7 +77,14 @@ int main (int argc, char *argv[]) {
        Col_Resolution_Type::BruteForce 
     };
 
-    simulation_description two_body_collision {
+    simulation_description fivehundread_uniform_random_bodies {
+        generate_fivehundread_uniform_random_bodies,
+        0.0, 365.25 * 24.0 * 3600.0,
+        50,
+        50,
+        Integrator_Type::RungeKutta4,
+        calculate_gravitational_acceleration,
+        Col_Resolution_Type::BruteForce 
 
     };
 
@@ -88,7 +95,7 @@ int main (int argc, char *argv[]) {
     // openglDisplay(three_body_example_simulation_description);
     GLWindowGlobals win_globs {};
     SimulationGLobals sim_globs {};
-    openglDisplay(thousand_bodies, std::move(win_globs), sim_globs);
+    openglDisplay(fivehundread_uniform_random_bodies, std::move(win_globs), sim_globs);
     // openglDisplay(thousand_bodies);
     // earth_moon_simulation(earth_moon_simulation_description);
     return 0;

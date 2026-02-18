@@ -3,6 +3,7 @@
 #include "integration_schemes.h"
 #include "general_simulation_generators.hpp"
 
+// generates a thousand random bodies 
 inline std::vector<gravitationalBody> generate_thousand_random_bodies() {
     BoundingBox pos_box {{-1000,-1000,-1000}, {1000,1000,1000}};
     pos_box.min *= 150.0;
@@ -12,7 +13,7 @@ inline std::vector<gravitationalBody> generate_thousand_random_bodies() {
     vel_box.min *= 0.01;
     vel_box.max *= 0.1;
 
-    const std::size_t num_points      = 600;
+    const std::size_t num_points      = 1000;
     uint32_t    seed   = 123456;    
     double      mMin   = 1e10;
     double      mMax   = 1e11;
@@ -29,6 +30,33 @@ inline std::vector<gravitationalBody> generate_thousand_random_bodies() {
 
     return bodies;
 }
+
+inline std::vector<gravitationalBody> generate_fivehundread_uniform_random_bodies() {
+    BoundingBox pos_box {{-1000,-1000,-1000}, {1000,1000,1000}};
+    pos_box.min *= 80.0;
+    pos_box.max *= 80.0;
+
+    BoundingBox vel_box {{-1,-1,-1}, {1,1,1}};
+    vel_box.min *= 0.1;
+    vel_box.max *= 1.0;
+
+    const std::size_t num_points = 500;
+    uint32_t    seed   = 123456;    
+    double      mMin   = 1e9;
+    double      mMax   = 1e11;
+
+    std::vector<gravitationalBody> bodies = generateRandomBodies(pos_box, vel_box, num_points, seed, mMin, mMax);
+
+    std::vector<double> densities = std::vector<double>(1000); // kg m^-3
+    std::fill(densities.begin(), densities.end(), 2000.0);
+    calculate_spherical_radius(bodies, densities);
+
+    for (int i = 0; i < bodies.size(); i++) {
+        bodies[i].restitution = 0.6;
+    }
+
+    return bodies;
+};
 
 inline std::function<std::vector<gravitationalBody>()> generate_three_body_generator(size_t seed) {
     return [seed](){

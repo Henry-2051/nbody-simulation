@@ -97,7 +97,7 @@ inline int openglDisplay(simulation_description sim_desc, GLWindowGlobals global
 
     // helper function to ensure float_bodies_positions mirrors the positions 
     // within bodies but using vec3 rather than dvec3 for opengl
-    auto recalc_float_pos = [&bodies, &float_body_positions](){
+    auto copyover_float_position_from_double = [&bodies, &float_body_positions](){
         if (bodies.size() != float_body_positions.size()) {
             float_body_positions.resize(bodies.size());
         }
@@ -117,13 +117,16 @@ inline int openglDisplay(simulation_description sim_desc, GLWindowGlobals global
         }
     };
 
-    recalc_float_pos(); // lambda call
+
+    copyover_float_position_from_double(); // lambda call
     scale_float_positions(); // 
 
+    // TODO : should put system metrics like this into their own struct or container 
     double combined_energy_last = calculate_gpe(bodies) + calculate_kinetic_energy(bodies);
     double combined_energy_current;
     double perc_energy_divergence;
 
+    // this is the log that is generated 
     g->metric_log = std::make_unique<SystemMetrics[]>(g->metric_log_length);
     g->metric_log[0] = SystemMetrics(combined_energy_last, 0);
 
@@ -210,12 +213,6 @@ inline int openglDisplay(simulation_description sim_desc, GLWindowGlobals global
     // param 5 : this is known as the stride length, it tells us the length between consecutive values
     // param 6 : type (void *) tells us the offset of where the position data begins in the buffer.
 
-    pointcloud_vert_shader = glCreateShader(GL_VERTEX_SHADER);
-
-    glShaderSource(pointcloud_vert_shader, 1, &vertex_shader_source, NULL);
-    glCompileShader(pointcloud_vert_shader);
-    display_opengl_shader_compilation_error(pointcloud_vert_shader);
-    std::cout << "pointcloud shader finished\n===============================\n";
 
     fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
     glShaderSource(fragment_shader, 1, &fragment_shader_source, NULL);
@@ -230,10 +227,6 @@ inline int openglDisplay(simulation_description sim_desc, GLWindowGlobals global
     std::cout << "spheremesh shader finished\n===============================\n";
 
 
-    g->pointcloud_shader_program = glCreateProgram();
-    glAttachShader(g->pointcloud_shader_program, pointcloud_vert_shader);
-    glAttachShader(g->pointcloud_shader_program, fragment_shader);
-    glLinkProgram(g->pointcloud_shader_program);
 
     g->spheremesh_shader_program = glCreateProgram();
     glAttachShader(g->spheremesh_shader_program, sphereMesh_vert_shader);
@@ -241,8 +234,6 @@ inline int openglDisplay(simulation_description sim_desc, GLWindowGlobals global
     glLinkProgram(g->spheremesh_shader_program);
 
 
-    display_opengl_program_compilation_error(g->pointcloud_shader_program);
-    std::cout << "pointcloud program finished\n";
     display_opengl_program_compilation_error(g->spheremesh_shader_program);
     std::cout << "spheremesh program finished\n";
 
@@ -303,7 +294,6 @@ inline int openglDisplay(simulation_description sim_desc, GLWindowGlobals global
             // ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
             ImGui::Checkbox("System analytics", &g->system_analytics_window);      // Edit bools storing our window open/close state
             ImGui::Checkbox("System control", &g->system_control);
-            ImGui::Checkbox("sphere mesh", &g->asteroid_model_yes);
 
             ImGui::Checkbox("paused", &g->paused);
             ImGui::ColorEdit3("clear color", (float*)&g->clear_color); // Edit 3 floats representing a color
@@ -343,7 +333,7 @@ inline int openglDisplay(simulation_description sim_desc, GLWindowGlobals global
 
             current_simulation_time = gs->inte->integrate(bodies, current_simulation_time, next_target_time);
             next_target_time += gs->desc.simulation_step_size;
-            recalc_float_pos();
+            copyover_float_position_from_double();
             scale_float_positions();
         }
 
@@ -374,11 +364,7 @@ inline int openglDisplay(simulation_description sim_desc, GLWindowGlobals global
                            g->cameraUp);
 
         GLuint shader_program;
-        if (g->asteroid_model_yes) {
-            shader_program = g->spheremesh_shader_program;
-        } else {
-            shader_program = g->pointcloud_shader_program;
-        }
+        shader_program = g->spheremesh_shader_program;
 
         glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, GL_FALSE, glm::value_ptr(model));
         glUniformMatrix4fv(glGetUniformLocation(shader_program, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
@@ -390,43 +376,26 @@ inline int openglDisplay(simulation_description sim_desc, GLWindowGlobals global
 
 
         glUseProgram(shader_program);
-        if (g->asteroid_model_yes) {
-            glBindVertexArray(drawingAsteroidsVAO);
-            GLint uColor = glGetUniformLocation(shader_program, "iColor");
-            glUniform3fv(uColor, 1, glm::value_ptr(g->sphere_color));
 
-            glBindBuffer(GL_ARRAY_BUFFER, spherePosVBO);
-            glBufferSubData(GL_ARRAY_BUFFER, 0, bodies.size() * sizeof(glm::vec3), float_body_positions.data());
+        glBindVertexArray(drawingAsteroidsVAO);
+        GLint uColor = glGetUniformLocation(shader_program, "iColor");
+        glUniform3fv(uColor, 1, glm::value_ptr(g->sphere_color));
 
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, uvSphereEboTrianges);
-            glDrawElementsInstanced(GL_TRIANGLES, 3 * g->uv_sphere.indices.size(), GL_UNSIGNED_INT, (void*)0, bodies.size());
+        glBindBuffer(GL_ARRAY_BUFFER, spherePosVBO);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, bodies.size() * sizeof(glm::vec3), float_body_positions.data());
 
-            glUniform3fv(uColor, 1, glm::value_ptr(g->line_color));
-            glDrawElementsInstanced(GL_LINES, 2 * g-> uv_sphere.lineIndices.size(), GL_UNSIGNED_INT, 0, bodies.size());
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, uvSphereEboTrianges);
+        glDrawElementsInstanced(GL_TRIANGLES, 3 * g->uv_sphere.indices.size(), GL_UNSIGNED_INT, (void*)0, bodies.size());
 
-            ImGui::Render();
-            ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-            glBindBuffer(GL_ARRAY_BUFFER, 0); 
-            glfwSwapBuffers(window);
-            glfwPollEvents();
+        glUniform3fv(uColor, 1, glm::value_ptr(g->line_color));
+        glDrawElementsInstanced(GL_LINES, 2 * g-> uv_sphere.lineIndices.size(), GL_UNSIGNED_INT, 0, bodies.size());
 
-        }
-        else {
-            glBindBuffer(GL_ARRAY_BUFFER, spherePosVBO);
-            glBindVertexArray(drawingAsteroidsVAO);
-            glBufferSubData(GL_ARRAY_BUFFER, 0, bodies.size() * sizeof(glm::vec3), float_body_positions.data());
+        ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        glBindBuffer(GL_ARRAY_BUFFER, 0); 
+        glfwSwapBuffers(window);
+        glfwPollEvents();
 
-            glPointSize(g->point_draw_size);
-
-            glDrawArrays(GL_POINTS, 0, bodies.size()); // HERE 
-
-            ImGui::Render();
-            ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-            glBindVertexArray(0); 
-            glBindBuffer(GL_ARRAY_BUFFER, 0); 
-            glfwSwapBuffers(window);
-            glfwPollEvents();
-        }
 
 
     }

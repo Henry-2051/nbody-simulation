@@ -65,10 +65,8 @@ struct GLWindowGlobals {
 
     bool draw_spheres = true;
 
-    GLuint pointcloud_shader_program, spheremesh_shader_program;
+    GLuint spheremesh_shader_program;
 
-    RenderState asteroid_draw_type = RenderState::spheremesh;
-    bool asteroid_model_yes = true;
     glm::vec3 sphere_color {0.8, 0.2, 0.2};
     glm::vec3 line_color {0.2, 0.2, 0.8};
 };
