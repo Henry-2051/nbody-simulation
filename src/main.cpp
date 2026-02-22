@@ -82,7 +82,7 @@ int main (int argc, char *argv[]) {
         0.0, 365.25 * 24.0 * 3600.0,
         50,
         50,
-        Integrator_Type::RungeKutta4,
+        Integrator_Type::SymplecticEuler,
         calculate_gravitational_acceleration,
         Col_Resolution_Type::BruteForce 
 

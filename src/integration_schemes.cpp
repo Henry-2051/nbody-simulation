@@ -304,8 +304,56 @@ quadratic_collision_detection_and_resolution(const gravitationalBody& body1, con
 
 void collisions_dissabled() {}
 
-void brute_force_collision_resolution_velocity_change_calculation(const std::vector<gravitationalBody>& bodies, 
-    std::vector<glm::dvec3>& velocity_change_junk, double step_size) 
+void brute_force_collision_resolution_velocity_change_calculation(const std::vector<gravitationalBody>& bodies, std::vector<glm::dvec3>& velocity_change_junk, double step_size) {
+    velocity_change_junk.resize(bodies.size());
+    std::fill(velocity_change_junk.begin(), velocity_change_junk.end(), glm::dvec3(0.0,0.0,0.0));
+
+    for (size_t i = 0; i < (bodies.size() - 1); i++) {
+        for (size_t j = i + 1; j < bodies.size(); j++) {
+            double sum_mass = bodies[i].mass + bodies[j].mass;
+            glm::dvec3 sum_momentum = bodies[i].velocity * bodies[i].mass + bodies[j].velocity * bodies[j].mass;
+            glm::dvec3 vboost = sum_momentum / (sum_mass);
+            glm::dvec3 m_bar = (bodies[i].position * bodies[i].mass + bodies[j].position * bodies[j].mass) / sum_mass;
+
+            // we transition into the lorentz frame of the collision
+            glm::dvec3 v1 = bodies[i].velocity - vboost;
+            glm::dvec3 v2 = bodies[j].velocity - vboost;
+
+            glm::dvec3 r10 = bodies[i].position - m_bar;
+            glm::dvec3 r20 = bodies[j].position - m_bar;
+
+            glm::dvec3 diff_r0 = r10 - r20;
+            glm::dvec3 diff_v = v1 - v2;
+
+            glm::dvec3 norm_diff_r0 = glm::normalize(diff_r0);
+            double diff_r0_magnitude = std::sqrt(glm::dot(diff_r0, diff_r0));
+
+            double overlap = bodies[i].radius + bodies[j].radius - diff_r0_magnitude;
+
+            // inverse r^3 repulsion law, irrelevant over large distances but prevents bodies from overlapping at smaller distances
+            // the force is calculated such that it is equal anad opposite to the gravitational attraction when the bodies are just barely
+            // touching 
+            // this also makes our quadratic collisions more accurate becasue when 2 bodies get close now the acceleration approaches zero 
+            
+            // we shouldnt execute the collision code when the bodies are overlapping because 
+            if (overlap > 0.0) {
+                // std::cout << std::format("inside!!!{} \n", bodies[j].position.x);
+                continue;
+            }
+
+            // continue of the bodies aren't moving towards each other
+            if (glm::dot(diff_r0, diff_v) >= 0.0) {
+                continue;
+            }
+
+            quadratic_collision_detection_and_resolution(bodies[i], bodies[j],
+                             velocity_change_junk[i], velocity_change_junk[j], 
+                             diff_r0, diff_v, step_size);
+        }
+    }
+}
+
+void brute_force_collision_resolution_velocity_change_calculation_with_inverse_cube(const std::vector<gravitationalBody>& bodies, std::vector<glm::dvec3>& velocity_change_junk, double step_size)
 {
     velocity_change_junk.resize(bodies.size());
     std::fill(velocity_change_junk.begin(), velocity_change_junk.end(), glm::dvec3(0.0,0.0,0.0));

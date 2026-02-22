@@ -1,5 +1,6 @@
 #include "integrator.h"
 #include "datatypes.h"
+#include "integration_schemes.h"
 #include <format>
 #include <iostream>
 #include <stdexcept>
@@ -24,6 +25,9 @@ integrator::timestep_system(std::vector<gravitationalBody>& bodies, double delta
     switch (collision_resolution_type) {
     case Col_Resolution_Type::BruteForce:
         brute_force_collision_resolution_velocity_change_calculation(bodies, velocity_change_junk, deltaT);
+        break;
+    case Col_Resolution_Type::BruteForceWeirdRepulsion:
+        brute_force_collision_resolution_velocity_change_calculation_with_inverse_cube(bodies, velocity_change_junk, deltaT);
         break;
     case Col_Resolution_Type::Dissabled:
         break;

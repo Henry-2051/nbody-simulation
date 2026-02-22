@@ -24,7 +24,8 @@ enum class Integrator_Type
 enum class Col_Resolution_Type
 {
     Dissabled,
-    BruteForce
+    BruteForce,
+    BruteForceWeirdRepulsion
 };
 
 constexpr std::string_view to_string(Integrator_Type t) noexcept {
@@ -42,6 +43,7 @@ constexpr std::string_view to_string(Col_Resolution_Type t) noexcept {
     switch (t) {
         case Col_Resolution_Type::Dissabled:  return "Dissabled";
         case Col_Resolution_Type::BruteForce: return "BruteForce";
+        case Col_Resolution_Type::BruteForceWeirdRepulsion: return "BruteForceWeirdRepulsion";
     }
     return "Unknown(Col_Resolution_Type)";
 }
@@ -58,7 +60,7 @@ quadratic_collision_detection_and_resolution(const gravitationalBody& body1, con
                                              glm::dvec3& velocity_change1, glm::dvec3& velocity_change2,
                                              glm::dvec3& diff_r0, glm::dvec3& diff_v, double step_size);
 
-void brute_force_collision_resolution_velocity_change_calculation(
+void brute_force_collision_resolution_velocity_change_calculation_with_inverse_cube(
     const std::vector<gravitationalBody>& bodies, std::vector<glm::dvec3>& velocity_change_junk, double step_size);
 
 void calculate_gravitational_acceleration(const std::vector<gravitationalBody> &bodies, std::vector<glm::dvec3>& acceleration);
@@ -188,8 +190,12 @@ quadratic_collision_detection_and_resolution(const gravitationalBody& body1, con
                                              glm::dvec3& velocity_change1, glm::dvec3& velocity_change2,
                                              glm::dvec3& diff_r0, glm::dvec3& diff_v, double step_size);
 
-void brute_force_collision_resolution_velocity_change_calculation(
+void brute_force_collision_resolution_velocity_change_calculation_with_inverse_cube(
     const std::vector<gravitationalBody>& bodies, 
     std::vector<glm::dvec3>& velocity_change_junk, 
     double step_size);
 
+void brute_force_collision_resolution_velocity_change_calculation(
+    const std::vector<gravitationalBody>& bodies, 
+    std::vector<glm::dvec3>& velocity_change_junk, 
+    double step_size);

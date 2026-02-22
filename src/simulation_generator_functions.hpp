@@ -33,12 +33,12 @@ inline std::vector<gravitationalBody> generate_thousand_random_bodies() {
 
 inline std::vector<gravitationalBody> generate_fivehundread_uniform_random_bodies() {
     BoundingBox pos_box {{-1000,-1000,-1000}, {1000,1000,1000}};
-    pos_box.min *= 80.0;
-    pos_box.max *= 80.0;
+    pos_box.min *= 5.0;
+    pos_box.max *= 5.0;
 
     BoundingBox vel_box {{-1,-1,-1}, {1,1,1}};
-    vel_box.min *= 0.1;
-    vel_box.max *= 1.0;
+    vel_box.min *= 0.01;
+    vel_box.max *= 0.1;
 
     const std::size_t num_points = 500;
     uint32_t    seed   = 123456;    
