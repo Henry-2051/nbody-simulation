@@ -69,9 +69,14 @@ struct GLWindowGlobals {
 
     glm::vec3 sphere_color {0.8, 0.2, 0.2};
     glm::vec3 line_color {0.2, 0.2, 0.8};
+
+    size_t frame_count;
 };
 
 struct SimulationGLobals {
     simulation_description desc;
     integrator* inte = nullptr;
+    double current_simulation_time;
+    double combined_energy_current;
+    double perc_energy_divergence;
 };

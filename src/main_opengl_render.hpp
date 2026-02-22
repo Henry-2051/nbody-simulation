@@ -13,6 +13,7 @@
 #include "main_opengl_render_structs.hpp"
 #include "model_making_code.h"
 #include "primitiveDatatypes.h"
+#include "opengl_imgui_menu.hpp"
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void processInput(GLFWwindow *window);
@@ -123,17 +124,15 @@ inline int openglDisplay(simulation_description sim_desc, GLWindowGlobals global
 
     // TODO : should put system metrics like this into their own struct or container 
     double combined_energy_last = calculate_gpe(bodies) + calculate_kinetic_energy(bodies);
-    double combined_energy_current;
-    double perc_energy_divergence;
 
     // this is the log that is generated 
     g->metric_log = std::make_unique<SystemMetrics[]>(g->metric_log_length);
     g->metric_log[0] = SystemMetrics(combined_energy_last, 0);
 
     // now atomic 
-    auto calculate_system_metrics = [&bodies, &combined_energy_current, &perc_energy_divergence, &combined_energy_last]() {
-            combined_energy_current = calculate_kinetic_energy(bodies) + calculate_gpe(bodies);
-            perc_energy_divergence = 100.0 * (combined_energy_current - combined_energy_last) / combined_energy_last;
+    auto calculate_system_metrics = [&bodies, gs, &combined_energy_last]() {
+            gs->combined_energy_current = calculate_kinetic_energy(bodies) + calculate_gpe(bodies);
+            gs->perc_energy_divergence = 100.0 * (gs->combined_energy_current - combined_energy_last) / combined_energy_last;
     };
 
     // for (auto& body : bodies) {
@@ -249,7 +248,7 @@ inline int openglDisplay(simulation_description sim_desc, GLWindowGlobals global
     gs->inte = new integrator(sim_desc.integrator_type, sim_desc.collision_resolution_type, sim_desc.acceleration_function, sim_desc.integrator_step_size_hint);
     
     // auto last_frame = std::chrono::high_resolution_clock::now();
-    double current_simulation_time = sim_desc.start;
+    gs->current_simulation_time = sim_desc.start;
     double next_target_time = sim_desc.start + sim_desc.simulation_step_size;
 
     float time_accumulator = 0;
@@ -270,7 +269,7 @@ inline int openglDisplay(simulation_description sim_desc, GLWindowGlobals global
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
     while((!glfwWindowShouldClose(window)) &&
-        current_simulation_time < sim_desc.end) 
+        gs->current_simulation_time < sim_desc.end) 
     {
         if (!g->paused) frame_count ++;
 
@@ -284,54 +283,12 @@ inline int openglDisplay(simulation_description sim_desc, GLWindowGlobals global
             calculate_system_metrics();
         }
 
-        // IMGUI DISPLAY
-        ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
-        ImGui::NewFrame();
-        {
-            ImGui::Begin("Hello, world!");                          // Create a window called "Hello, world!" and append into it.
-            //
-            // ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
-            ImGui::Checkbox("System analytics", &g->system_analytics_window);      // Edit bools storing our window open/close state
-            ImGui::Checkbox("System control", &g->system_control);
-
-            ImGui::Checkbox("paused", &g->paused);
-            ImGui::ColorEdit3("clear color", (float*)&g->clear_color); // Edit 3 floats representing a color
-            ImGui::SliderFloat("point size", &g->point_draw_size, 1.0f, 20.0f);
-
-
-            ImGui::Text("Simulation world time: %.0f seconds\nSimulation progress: %.1f%%", current_simulation_time, (((current_simulation_time - sim_desc.start) * 100.0) / (sim_desc.end - sim_desc.start)));
-            ImGui::Text("Simulation frame: %zu", frame_count);
-
-            ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
-            ImGui::End();
-        }
-
-        if (g->system_analytics_window) {
-            ImGui::Begin("System analtics", &g->system_analytics_window);
-
-            ImGui::Text("%s", std::format("current energy of the systme  : {:.0f} Joules", combined_energy_current).c_str());
-            ImGui::Text("%s", std::format("percentage energy change from last frame : {:.2e}%%", perc_energy_divergence).c_str());
-            double perc_energy_change_from_start = 100.0 * ((combined_energy_current - g->metric_log[0].combined_energy) / g->metric_log[0].combined_energy);
-            ImGui::Text("%s", std::format("percentage energy change from start : {:.2e}%%", perc_energy_change_from_start).c_str());
-            ImGui::End();
-        }
-
-        if (g->system_control) {
-            ImGui::Begin("System control", &g->system_control);
-            double min = sim_desc.simulation_step_size * 0.1, max = sim_desc.simulation_step_size * 10.0;
-            ImGui::SliderScalar("simulation time per frame", ImGuiDataType_Double, 
-                                &gs->desc.simulation_step_size, &min, &max);
-
-            min = sim_desc.integrator_step_size_hint* 0.1, max = sim_desc.integrator_step_size_hint * 10.0;
-            ImGui::SliderScalar("integrator step size", ImGuiDataType_Double, &gs->inte->step_size, &min, &max);
-            ImGui::End();
-        }
+        display_imgui_menu(g, gs, io);
 
         if (!g->paused) {
-            combined_energy_last = combined_energy_current;
+            combined_energy_last = gs->combined_energy_current;
 
-            current_simulation_time = gs->inte->integrate(bodies, current_simulation_time, next_target_time);
+            gs->current_simulation_time = gs->inte->integrate(bodies, gs->current_simulation_time, next_target_time);
             next_target_time += gs->desc.simulation_step_size;
             copyover_float_position_from_double();
             scale_float_positions();
